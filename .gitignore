@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# 환경 설정 (토큰, 비밀번호 포함)
+.env
+
+# 런타임 데이터
+mailbox.json
+chat_history.json
+logs/
+
+# 버튼 이미지 (각 사용자가 직접 캡처해야 함)
+images/*.png
+
+# macOS
+.DS_Store

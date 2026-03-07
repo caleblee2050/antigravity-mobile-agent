@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🚀 Antigravity Mobile Agent</title>
+    <meta name="description" content="안티그래비티 모바일 원격 제어 대시보드">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #06060b;
+            --bg-secondary: #0d0d16;
+            --bg-card: #13132a;
+            --bg-card-hover: #1a1a3a;
+            --bg-input: #0f0f22;
+            --accent: #7c6aff;
+            --accent-light: #9d8fff;
+            --accent-glow: rgba(124, 106, 255, 0.25);
+            --accent-gradient: linear-gradient(135deg, #7c6aff, #c084fc);
+            --text-primary: #eeeef5;
+            --text-secondary: #7878a0;
+            --text-muted: #50506a;
+            --success: #34d399;
+            --success-glow: rgba(52, 211, 153, 0.2);
+            --warning: #fbbf24;
+            --danger: #f87171;
+            --danger-glow: rgba(248, 113, 113, 0.2);
+            --border: rgba(255, 255, 255, 0.05);
+            --border-active: rgba(124, 106, 255, 0.3);
+            --radius: 14px;
+            --radius-sm: 10px;
+            --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            min-height: 100dvh;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ═══ 헤더 ═══ */
+        .header {
+            background: linear-gradient(180deg, rgba(13,13,22,0.95), rgba(6,6,11,0.9));
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+
+        .header-left { display: flex; align-items: center; gap: 10px; }
+
+        .header h1 {
+            font-size: 17px;
+            font-weight: 700;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.3px;
+        }
+
+        .header-right { display: flex; align-items: center; gap: 12px; }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+            background: rgba(248,113,113,0.12);
+            color: var(--danger);
+            border: 1px solid rgba(248,113,113,0.2);
+            transition: all 0.4s ease;
+        }
+
+        .status-badge.connected {
+            background: rgba(52,211,153,0.12);
+            color: var(--success);
+            border-color: rgba(52,211,153,0.2);
+        }
+
+        .status-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--danger);
+            animation: pulse 2s infinite;
+        }
+
+        .status-badge.connected .status-dot {
+            background: var(--success);
+        }
+
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+        .theme-toggle {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .theme-toggle:active { transform: scale(0.9); }
+
+        /* ═══ 연결 패널 ═══ */
+        .auth-panel {
+            padding: 14px 20px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .auth-row { display: flex; flex-direction: column; gap: 8px; }
+        .auth-inputs { display: flex; gap: 8px; }
+
+        .input-field {
+            flex: 1;
+            padding: 11px 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.25s;
+        }
+        .input-field:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .btn {
+            padding: 11px 18px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .btn:active { transform: scale(0.96); }
+
+        .btn-primary {
+            background: var(--accent-gradient);
+            color: white;
+            box-shadow: 0 4px 16px var(--accent-glow);
+        }
+
+        .btn-connect {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: var(--radius-sm);
+        }
+
+        /* ═══ 승인 배너 ═══ */
+        .approval-banner {
+            display: none;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(248,113,113,0.1));
+            border-bottom: 1px solid rgba(251,191,36,0.15);
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            animation: slideDown 0.3s ease;
+        }
+        .approval-banner.visible { display: flex; }
+
+        @keyframes slideDown {
+            from { opacity:0; transform:translateY(-10px); }
+            to { opacity:1; transform:translateY(0); }
+        }
+
+        .approval-text { font-size: 13px; color: var(--warning); font-weight: 500; }
+
+        .btn-approve {
+            background: var(--success);
+            color: #000;
+            padding: 6px 16px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .btn-reject {
+            background: rgba(248,113,113,0.2);
+            color: var(--danger);
+            padding: 6px 16px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ═══ 탭 네비게이션 ═══ */
+        .tab-nav {
+            display: flex;
+            padding: 0 20px;
+            gap: 2px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .tab-btn {
+            padding: 12px 16px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .tab-btn.active {
+            color: var(--accent-light);
+            border-bottom-color: var(--accent);
+        }
+
+        /* ═══ 탭 콘텐츠 ═══ */
+        .tab-content { display: none; flex: 1; overflow-y: auto; }
+        .tab-content.active { display: flex; flex-direction: column; }
+
+        /* ═══ 상태 그리드 ═══ */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            padding: 16px 20px;
+        }
+
+        .status-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .status-card .icon { font-size: 22px; margin-bottom: 6px; }
+        .status-card .label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+        .status-card .value {
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .status-card .value.online { color: var(--success); }
+        .status-card .value.offline { color: var(--danger); }
+
+        /* ═══ 스크린샷 뷰어 ═══ */
+        .screenshot-section { padding: 16px 20px; }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .screenshot-viewer {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            overflow: hidden;
+            min-height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .screenshot-viewer img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .screenshot-placeholder {
+            color: var(--text-muted);
+            font-size: 13px;
+            text-align: center;
+            padding: 50px 20px;
+        }
+
+        .screenshot-time {
+            position: absolute;
+            bottom: 8px;
+            right: 10px;
+            font-size: 10px;
+            color: rgba(255,255,255,0.5);
+            background: rgba(0,0,0,0.6);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ═══ 빠른 명령어 ═══ */
+        .quick-commands {
+            padding: 0 20px 12px;
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .quick-commands::-webkit-scrollbar { display: none; }
+
+        .cmd-chip {
+            flex-shrink: 0;
+            padding: 8px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .cmd-chip:active {
+            background: var(--bg-card-hover);
+            border-color: var(--border-active);
+            color: var(--accent-light);
+        }
+
+        /* ═══ 채팅 영역 ═══ */
+        .chat-section {
+            padding: 0 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overscroll-behavior: contain;
+        }
+
+        .message {
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            line-height: 1.6;
+            animation: msgIn 0.25s ease;
+            word-break: break-word;
+        }
+
+        @keyframes msgIn {
+            from { opacity:0; transform:translateY(6px); }
+            to { opacity:1; transform:translateY(0); }
+        }
+
+        .message.sent {
+            background: var(--accent-gradient);
+            color: white;
+            margin-left: 48px;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 16px var(--accent-glow);
+        }
+
+        .message.received {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            margin-right: 48px;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.system {
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 12px;
+            text-align: center;
+            margin: 4px 20px;
+            padding: 6px;
+        }
+
+        .message .sender {
+            font-size: 11px;
+            font-weight: 600;
+            opacity: 0.7;
+            margin-bottom: 3px;
+        }
+
+        .message .time {
+            font-size: 10px;
+            opacity: 0.45;
+            margin-top: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 마크다운 스타일 */
+        .message code {
+            background: rgba(0,0,0,0.25);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        .message pre {
+            background: rgba(0,0,0,0.3);
+            padding: 10px 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 6px 0;
+            font-size: 12px;
+        }
+        .message pre code {
+            background: transparent;
+            padding: 0;
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            gap: 8px;
+            padding: 40px;
+        }
+        .empty-state .icon { font-size: 40px; opacity: 0.3; }
+        .empty-state .text { font-size: 13px; }
+
+        /* ═══ 입력 영역 ═══ */
+        .input-section {
+            position: sticky;
+            bottom: 0;
+            background: linear-gradient(180deg, rgba(6,6,11,0), var(--bg-secondary) 20%);
+            padding: 12px 20px 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .input-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .input-row textarea {
+            flex: 1;
+            padding: 12px 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            min-height: 44px;
+            max-height: 120px;
+            line-height: 1.4;
+            transition: all 0.25s;
+        }
+
+        .input-row textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .btn-send {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        .btn-send:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* ═══ 연결 정보 카드 ═══ */
+        .info-section { padding: 16px 20px; }
+
+        .info-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .info-row:last-child { border-bottom: none; }
+
+        .info-label { font-size: 12px; color: var(--text-muted); }
+        .info-value {
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-secondary);
+        }
+
+        /* ═══ 유틸 ═══ */
+        .hidden { display: none !important; }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+        @media (min-width: 768px) {
+            .status-grid { grid-template-columns: repeat(4, 1fr); }
+            .message.sent { margin-left: 30%; }
+            .message.received { margin-right: 30%; }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 헤더 -->
+    <div class="header">
+        <div class="header-left">
+            <h1>⚡ Antigravity</h1>
+        </div>
+        <div class="header-right">
+            <div class="status-badge" id="statusBadge">
+                <div class="status-dot"></div>
+                <span id="statusText">연결 안됨</span>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="테마 전환">🌙</button>
+        </div>
+    </div>
+
+    <!-- 연결 설정 -->
+    <div class="auth-panel" id="authPanel">
+        <div class="auth-row">
+            <div class="auth-inputs">
+                <input class="input-field" type="text" id="serverUrl" placeholder="서버 주소">
+                <input class="input-field" type="password" id="password" placeholder="비밀번호" value="antigravity2026">
+            </div>
+            <button class="btn btn-primary btn-connect" onclick="connect()">🔗 연결하기</button>
+        </div>
+    </div>
+
+    <!-- 승인 배너 -->
+    <div class="approval-banner" id="approvalBanner">
+        <span class="approval-text">⚠️ 승인 요청 대기 중</span>
+        <button class="btn btn-approve" onclick="respondApproval(true)">✅ 승인</button>
+        <button class="btn btn-reject" onclick="respondApproval(false)">❌ 거부</button>
+    </div>
+
+    <!-- 탭 네비게이션 -->
+    <div class="tab-nav">
+        <button class="tab-btn active" data-tab="chat">💬 대화</button>
+        <button class="tab-btn" data-tab="screen">📺 화면</button>
+        <button class="tab-btn" data-tab="status">📊 상태</button>
+    </div>
+
+    <!-- 탭: 대화 -->
+    <div class="tab-content active" id="tab-chat">
+        <div class="quick-commands" id="quickCommands"></div>
+        <div class="chat-section">
+            <div class="messages" id="messages">
+                <div class="empty-state" id="emptyState">
+                    <div class="icon">💬</div>
+                    <div class="text">연결 후 대화를 시작하세요</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭: 화면 -->
+    <div class="tab-content" id="tab-screen">
+        <div class="screenshot-section">
+            <div class="section-title">📺 실시간 화면</div>
+            <div class="screenshot-viewer" id="screenshotViewer">
+                <div class="screenshot-placeholder">연결 대기 중...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭: 상태 -->
+    <div class="tab-content" id="tab-status">
+        <div class="status-grid" id="statusGrid">
+            <div class="status-card">
+                <div class="icon">🖥️</div>
+                <div class="label">서버</div>
+                <div class="value offline" id="st-server">—</div>
+            </div>
+            <div class="status-card">
+                <div class="icon">🧠</div>
+                <div class="label">브레인</div>
+                <div class="value offline" id="st-brain">—</div>
+            </div>
+            <div class="status-card">
+                <div class="icon">👁️</div>
+                <div class="label">오토어프로버</div>
+                <div class="value offline" id="st-approver">—</div>
+            </div>
+            <div class="status-card">
+                <div class="icon">🤖</div>
+                <div class="label">디스코드</div>
+                <div class="value offline" id="st-discord">—</div>
+            </div>
+        </div>
+
+        <div class="info-section">
+            <div class="section-title">📡 연결 정보</div>
+            <div class="info-card">
+                <div class="info-row">
+                    <span class="info-label">로컬 IP</span>
+                    <span class="info-value" id="infoLocalIp">—</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Tailscale IP</span>
+                    <span class="info-value" id="infoTailscale">미설정</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">포트</span>
+                    <span class="info-value" id="infoPort">—</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 입력 -->
+    <div class="input-section safe-bottom">
+        <div class="input-row">
+            <textarea id="messageInput" placeholder="안티그래비티에게 명령을 입력하세요..." rows="1"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+            <button class="btn btn-primary btn-send" id="sendBtn" onclick="sendMessage()" disabled>➤</button>
+        </div>
+    </div>
+
+    <script>
+        // ═══ 상태 변수 ═══
+        let serverUrl = '';
+        let password = '';
+        let isConnected = false;
+        let pollInterval = null;
+        let screenshotInterval = null;
+        const STORAGE_KEY = 'antigravity_chat_history';
+        const SETTINGS_KEY = 'antigravity_settings';
+
+        // ═══ 초기화 ═══
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('serverUrl').value = window.location.origin || 'http://localhost:9150';
+            loadSettings();
+            setupTabs();
+            loadHistory();
+            setupTextareaResize();
+        });
+
+        function loadSettings() {
+            try {
+                const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+                if (s.serverUrl) document.getElementById('serverUrl').value = s.serverUrl;
+                if (s.password) document.getElementById('password').value = s.password;
+                if (s.autoConnect) setTimeout(() => connect(), 500);
+            } catch (e) {}
+        }
+
+        function saveSettings() {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+                serverUrl, password, autoConnect: true
+            }));
+        }
+
+        // ═══ 탭 ═══
+        function setupTabs() {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+                });
+            });
+        }
+
+        // ═══ 연결 ═══
+        function connect() {
+            serverUrl = document.getElementById('serverUrl').value.replace(/\/+$/, '');
+            password = document.getElementById('password').value;
+            if (!serverUrl) return alert('서버 주소를 입력해주세요.');
+
+            fetch(`${serverUrl}/api/sync`)
+                .then(res => {
+                    if (res.ok) {
+                        isConnected = true;
+                        document.getElementById('statusBadge').classList.add('connected');
+                        document.getElementById('statusText').textContent = '연결됨';
+                        document.getElementById('sendBtn').disabled = false;
+                        document.getElementById('authPanel').classList.add('hidden');
+                        addMessage('시스템', '✅ 서버에 연결되었습니다!', 'system');
+                        saveSettings();
+                        startPolling();
+                        loadQuickCommands();
+                        loadServerHistory();
+                        fetchStatus();
+                    }
+                })
+                .catch(err => addMessage('시스템', '❌ 연결 실패: ' + err.message, 'system'));
+        }
+
+        // ═══ 폴링 ═══
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(pollSync, 3000);
+            if (screenshotInterval) clearInterval(screenshotInterval);
+            screenshotInterval = setInterval(updateScreenshot, 8000);
+        }
+
+        function pollSync() {
+            if (!isConnected) return;
+            fetch(`${serverUrl}/api/sync`)
+                .then(res => res.json())
+                .then(data => {
+                    // AI 응답
+                    if (data.outbound?.text) {
+                        const last = document.getElementById('messages').dataset.lastReply;
+                        if (data.outbound.timestamp !== last) {
+                            addMessage('🧠 AI', data.outbound.text, 'received');
+                            document.getElementById('messages').dataset.lastReply = data.outbound.timestamp;
+                        }
+                    }
+                    // 승인 요청
+                    const banner = document.getElementById('approvalBanner');
+                    if (data.approval_request?.pending) {
+                        banner.classList.add('visible');
+                    } else {
+                        banner.classList.remove('visible');
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('statusBadge').classList.remove('connected');
+                    document.getElementById('statusText').textContent = '연결 끊김';
+                });
+        }
+
+        // ═══ 스크린샷 ═══
+        function updateScreenshot() {
+            if (!isConnected) return;
+            fetch(`${serverUrl}/api/screenshot`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.data) {
+                        const time = new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+                        document.getElementById('screenshotViewer').innerHTML =
+                            `<img src="data:image/jpeg;base64,${data.data}" alt="Screenshot">
+                             <span class="screenshot-time">${time}</span>`;
+                    }
+                })
+                .catch(() => {});
+        }
+
+        // ═══ 메시지 전송 ═══
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text || !isConnected) return;
+
+            fetch(`${serverUrl}/api/msg`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, password }),
+            })
+                .then(res => {
+                    if (res.ok) {
+                        addMessage('나', text, 'sent');
+                        input.value = '';
+                        input.style.height = 'auto';
+                    } else {
+                        res.json().then(d => addMessage('시스템', '❌ ' + d.error, 'system'));
+                    }
+                })
+                .catch(() => addMessage('시스템', '❌ 전송 실패', 'system'));
+        }
+
+        // ═══ 승인 응답 ═══
+        function respondApproval(approved) {
+            fetch(`${serverUrl}/api/approval/respond`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ approved, password }),
+            }).then(() => {
+                document.getElementById('approvalBanner').classList.remove('visible');
+                addMessage('시스템', approved ? '✅ 승인됨' : '❌ 거부됨', 'system');
+            });
+        }
+
+        // ═══ 빠른 명령어 ═══
+        function loadQuickCommands() {
+            fetch(`${serverUrl}/api/commands`)
+                .then(res => res.json())
+                .then(data => {
+                    const container = document.getElementById('quickCommands');
+                    container.innerHTML = '';
+                    (data.commands || []).forEach(cmd => {
+                        const chip = document.createElement('button');
+                        chip.className = 'cmd-chip';
+                        chip.textContent = cmd.label;
+                        chip.onclick = () => {
+                            document.getElementById('messageInput').value = cmd.text;
+                            document.getElementById('messageInput').focus();
+                        };
+                        container.appendChild(chip);
+                    });
+                })
+                .catch(() => {});
+        }
+
+        // ═══ 서버 히스토리 불러오기 ═══
+        function loadServerHistory() {
+            fetch(`${serverUrl}/api/history?limit=50`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.messages?.length > 0) {
+                        document.getElementById('emptyState')?.remove();
+                        data.messages.forEach(m => {
+                            addMessage(m.sender || '?', m.text, m.type, m.timestamp, true);
+                        });
+                    }
+                })
+                .catch(() => {});
+        }
+
+        // ═══ 상태 정보 ═══
+        function fetchStatus() {
+            if (!isConnected) return;
+            fetch(`${serverUrl}/api/status`)
+                .then(res => res.json())
+                .then(data => {
+                    const comps = data.components || {};
+                    Object.entries(comps).forEach(([key, info]) => {
+                        const el = document.getElementById('st-' + key);
+                        if (el) {
+                            const running = info.status === 'running';
+                            el.textContent = running ? '정상' : info.status || '—';
+                            el.className = 'value ' + (running ? 'online' : 'offline');
+                        }
+                    });
+                    if (data.local_ip) document.getElementById('infoLocalIp').textContent = data.local_ip;
+                    if (data.tailscale_ip) document.getElementById('infoTailscale').textContent = data.tailscale_ip;
+                    if (data.port) document.getElementById('infoPort').textContent = data.port;
+                })
+                .catch(() => {});
+            setTimeout(fetchStatus, 15000);
+        }
+
+        // ═══ 메시지 추가 ═══
+        function addMessage(sender, text, type, timestamp, silent) {
+            const container = document.getElementById('messages');
+            document.getElementById('emptyState')?.remove();
+
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+
+            const time = timestamp
+                ? new Date(timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })
+                : new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+
+            const rendered = renderMarkdown(text);
+
+            if (type === 'system') {
+                msg.innerHTML = rendered;
+            } else {
+                msg.innerHTML = `<div class="sender">${sender}</div>${rendered}<div class="time">${time}</div>`;
+            }
+
+            if (silent) msg.style.animation = 'none';
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+
+            // localStorage에 저장
+            if (!silent) saveToHistory({ sender, text, type, timestamp: new Date().toISOString() });
+        }
+
+        // ═══ 간단한 마크다운 렌더링 ═══
+        function renderMarkdown(text) {
+            return text
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // ═══ localStorage 히스토리 ═══
+        function saveToHistory(msg) {
+            try {
+                let h = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                h.push(msg);
+                if (h.length > 200) h = h.slice(-200);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(h));
+            } catch (e) {}
+        }
+
+        function loadHistory() {
+            try {
+                const h = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                if (h.length > 0) {
+                    document.getElementById('emptyState')?.remove();
+                    h.slice(-30).forEach(m => addMessage(m.sender, m.text, m.type, m.timestamp, true));
+                }
+            } catch (e) {}
+        }
+
+        // ═══ 테마 전환 ═══
+        function toggleTheme() {
+            const btn = document.querySelector('.theme-toggle');
+            document.body.classList.toggle('light-theme');
+            btn.textContent = document.body.classList.contains('light-theme') ? '☀️' : '🌙';
+        }
+
+        // ═══ textarea 자동 높이 ═══
+        function setupTextareaResize() {
+            document.getElementById('messageInput').addEventListener('input', function () {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+        }
+    </script>
+</body>
+
+</html>
