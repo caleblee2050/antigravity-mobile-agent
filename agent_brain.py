@@ -100,39 +100,54 @@ def load_chat_input_config():
 
 def focus_chat_input():
     """
-    채팅 입력창에 포커스 — 다단계 전략
+    채팅 입력창에 포커스
 
-    Electron 앱은 접근성 트리에 웹뷰 내부 요소를 노출하지 않으므로,
-    다음 전략을 순서대로 시도합니다:
-
-    1) agent_config.json에 사용자 지정 오프셋이 있으면 그걸 사용
-    2) 윈도우 하단 중앙 클릭 (대부분의 AI 채팅 앱은 입력이 하단에 위치)
+    좌측 패널(Explorer)에 포커스가 박혀서 모든 가상 단축키를 잡아먹는 현상을 완전히 회피하기 위해,
+    실제 윈도우 좌표를 계산해 화면 우측 하단(채팅 입력창)을 마우스로 직접 강제 클릭합니다.
     """
-    # 전략 1: 사용자 지정 좌표 (agent_config.json에 chat_input_offset 설정)
-    custom_offset = load_chat_input_config()
-    if custom_offset:
-        bounds = get_window_bounds()
-        if bounds:
-            click_x = bounds["x"] + custom_offset.get("x", bounds["w"] // 2)
-            click_y = bounds["y"] + custom_offset.get("y", bounds["h"] - 60)
-            pyautogui.click(click_x, click_y)
-            time.sleep(0.3)
-            logger.info(f"🎯 사용자 지정 좌표로 클릭: ({click_x}, {click_y})")
-            return True
+    logger.info("🎯 마우스 클릭을 이용해 물리적인 포커스 탈취 시도...")
+    
+    # 1. 앱을 우선 활성화
+    subprocess.run(["osascript", "-e", f'tell application "{APP_NAME}" to activate'], check=False)
+    time.sleep(0.3)
 
-    # 전략 2: 윈도우 하단 중앙 클릭 (범용)
     bounds = get_window_bounds()
     if bounds:
-        # 채팅 입력은 보통 윈도우 하단 50~80px 영역에 위치
-        click_x = bounds["x"] + (bounds["w"] // 2)
-        click_y = bounds["y"] + bounds["h"] - 60
-        pyautogui.click(click_x, click_y)
+        x, y, w, h = bounds["x"], bounds["y"], bounds["w"], bounds["h"]
+        
+        # 기본 타겟: 우측 패널 하단 중앙 (채팅창 위치)
+        target_x = x + w - 150
+        target_y = y + h - 60
+        
+        # config 오프셋 덮어쓰기
+        custom_offset = load_chat_input_config()
+        if custom_offset:
+            if "x_ratio" in custom_offset:
+                target_x = x + int(w * custom_offset["x_ratio"])
+            if "y_ratio" in custom_offset:
+                target_y = y + int(h * custom_offset["y_ratio"])
+        
+        logger.info(f"👉 윈도우 내부 {target_x}, {target_y} 마우스 강제 클릭!")
+        
+        # 마우스 위치 백업 및 강제 클릭
+        orig_x, orig_y = pyautogui.position()
+        pyautogui.click(target_x, target_y)
         time.sleep(0.3)
-        logger.info(f"🎯 윈도우 하단 중앙 클릭: ({click_x}, {click_y})")
-        return True
+        pyautogui.moveTo(orig_x, orig_y) # 원위치
+    else:
+        logger.warning("⚠️ 윈도우 좌표 획득 실패. 클릭 패스.")
 
-    logger.warning("⚠️ 채팅 입력창 포커스 실패 — 윈도우 좌표를 가져올 수 없습니다.")
-    return False
+    # 2. 보험용 Cmd+L 한 번 더 전송
+    logger.info("🎯 보험용 Cmd+L 한 번 더 전송...")
+    script = '''
+    tell application "System Events"
+        keystroke "l" using command down
+    end tell
+    '''
+    subprocess.run(["osascript", "-e", script], check=False)
+    time.sleep(0.3)
+    
+    return True
 
 
 def type_message_to_antigravity(text: str):
