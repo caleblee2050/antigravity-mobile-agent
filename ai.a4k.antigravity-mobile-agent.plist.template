@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.a4k.antigravity-mobile-agent</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <!-- 여기서 {WORKING_DIR}는 Makefile에서 설치 시 sed로 동적 치환됨 -->
+        <string>{WORKING_DIR}/run_agent.sh</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>{WORKING_DIR}</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <!-- 터미널 없이도 프로세스가 죽으면 OS가 0.1초만에 무한 재시작 -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 불필요한 재시작 루프 방지, 10초 대기 -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- 에러/일반 출력 모두 파일에 직접 기록 -->
+    <key>StandardOutPath</key>
+    <string>{WORKING_DIR}/logs/agent.out</string>
+    
+    <key>StandardErrorPath</key>
+    <string>{WORKING_DIR}/logs/agent.err</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

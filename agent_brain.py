@@ -188,17 +188,32 @@ def type_message_to_antigravity(text: str):
 def capture_screenshot():
     """전체 화면 스크린샷을 base64로 반환 (권한 있을 때만)"""
     try:
-        screenshot = pyautogui.screenshot()
-        buffer = io.BytesIO()
-        screenshot.save(buffer, format="PNG", optimize=True)
-        # 용량 절약을 위해 리사이즈
+        # LaunchAgent 백그라운드 구동 시 pyautogui.screenshot()이 
+        # "could not create image from display" 에러를 내며 죽는 현상 방지
+        import tempfile
         from PIL import Image
-
-        img = Image.open(io.BytesIO(buffer.getvalue()))
+        
+        tmp_file = os.path.join(tempfile.gettempdir(), "antigravity_screen.png")
+        # macOS 네이티브 캡처 도구 사용 (-x: 소리 없음)
+        result = subprocess.run(["screencapture", "-x", tmp_file], capture_output=True)
+        
+        if result.returncode != 0 or not os.path.exists(tmp_file):
+            return ""
+            
+        img = Image.open(tmp_file)
+        # 용량 절약을 위해 리사이즈
         img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
-        buffer2 = io.BytesIO()
-        img.save(buffer2, format="JPEG", quality=50)
-        return base64.b64encode(buffer2.getvalue()).decode("utf-8")
+        
+        buffer = io.BytesIO()
+        # RGB 변환 (RGBA 등일 경우 JPEG 저장 오류 방지)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        img.save(buffer, format="JPEG", quality=50)
+        
+        # 임시 파일 삭제
+        os.remove(tmp_file)
+        
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
     except Exception as e:
         logger.debug(f"스크린샷 캡처 실패: {e}")
         return ""
