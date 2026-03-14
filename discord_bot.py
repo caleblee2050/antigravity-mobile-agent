@@ -21,6 +21,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 from dotenv import load_dotenv
+import telegram_notifier
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
@@ -85,6 +86,10 @@ class AntigravityBot(discord.Client):
             ) as resp:
                 if resp.status == 200:
                     await message.add_reaction("📨")
+                    # 텔레그램 알림: 디스코드에서 메시지 수신
+                    await asyncio.to_thread(
+                        telegram_notifier.notify_message_received, text
+                    )
                 else:
                     await message.add_reaction("❌")
         except Exception as e:
@@ -111,9 +116,15 @@ class AntigravityBot(discord.Client):
                     ):
                         self.last_outbound_timestamp = outbound["timestamp"]
                         channel = self.get_channel(CHANNEL_ID)
+                        text = outbound["text"]
+
+                        # 텔레그램 알림: AI 응답
+                        await asyncio.to_thread(
+                            telegram_notifier.notify_ai_reply, text
+                        )
+
                         if channel:
                             # 2000자 제한 대응
-                            text = outbound["text"]
                             if len(text) > 1900:
                                 chunks = [text[i : i + 1900] for i in range(0, len(text), 1900)]
                                 for chunk in chunks:

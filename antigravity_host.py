@@ -8,10 +8,12 @@ import json
 import os
 import base64
 import subprocess
+import threading
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
+import telegram_notifier
 
 load_dotenv()
 
@@ -178,6 +180,34 @@ def post_reply():
 
     # 히스토리에 기록
     add_to_history("AI", text, "received")
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/notify", methods=["POST"])
+def send_notification():
+    """📬 범용 텔레그램 알림 전송 (Antigravity가 직접 결과를 보낼 때)"""
+    data = request.json
+    title = data.get("title", "알림")
+    body = data.get("body", "").strip()
+    notify_type = data.get("type", "custom")
+
+    if not body:
+        return jsonify({"error": "빈 내용"}), 400
+
+    # 타입별 알림 함수 선택
+    notifier_map = {
+        "task_complete": lambda: telegram_notifier.notify_task_complete(title, body),
+        "error": lambda: telegram_notifier.notify_error(body),
+        "approval": lambda: telegram_notifier.notify_approval_needed(body),
+        "custom": lambda: telegram_notifier.notify_custom(title, body),
+    }
+
+    notify_fn = notifier_map.get(notify_type, notifier_map["custom"])
+    threading.Thread(target=notify_fn, daemon=True).start()
+
+    # 히스토리에도 기록
+    add_to_history("시스템", f"[{title}] {body}", "notification")
 
     return jsonify({"status": "ok"})
 

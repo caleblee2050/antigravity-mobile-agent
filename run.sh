@@ -10,8 +10,8 @@ cd "$SCRIPT_DIR"
 cleanup() {
     echo ""
     echo "🛑 모든 프로세스 종료 중..."
-    kill $HOST_PID $APPROVER_PID $DISCORD_PID 2>/dev/null
-    wait $HOST_PID $APPROVER_PID $DISCORD_PID 2>/dev/null
+    kill $HOST_PID $APPROVER_PID $TELEGRAM_PID 2>/dev/null
+    wait $HOST_PID $APPROVER_PID $TELEGRAM_PID 2>/dev/null
     echo "✅ 종료 완료"
     exit 0
 }
@@ -74,14 +74,14 @@ python3 auto_approver.py >> logs/approver_console.log 2>&1 &
 APPROVER_PID=$!
 echo "   PID: $APPROVER_PID"
 
-# 3. 디스코드 봇 (환경변수 있을 때만)
-DISCORD_PID=""
-DISCORD_TOKEN=$(grep DISCORD_TOKEN .env 2>/dev/null | cut -d= -f2)
-if [ -n "$DISCORD_TOKEN" ] && [ "$DISCORD_TOKEN" != "" ]; then
-    echo "🤖 디스코드 봇 시작..."
-    python3 discord_bot.py >> logs/discord.log 2>&1 &
-    DISCORD_PID=$!
-    echo "   PID: $DISCORD_PID"
+# 3. 텔레그램 봇 (환경변수 있을 때만)
+TELEGRAM_PID=""
+TELEGRAM_TOKEN_VAL=$(grep TELEGRAM_TOKEN .env 2>/dev/null | cut -d= -f2)
+if [ -n "$TELEGRAM_TOKEN_VAL" ] && [ "$TELEGRAM_TOKEN_VAL" != "" ]; then
+    echo "📱 텔레그램 봇 시작..."
+    python3 telegram_bot.py > /dev/null 2>&1 &
+    TELEGRAM_PID=$!
+    echo "   PID: $TELEGRAM_PID"
 fi
 
 # 접속 정보 표시

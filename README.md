@@ -1,12 +1,12 @@
 # 🚀 안티그래비티 모바일 에이전트
 
-> 모바일(디스코드/웹)에서 PC의 **Antigravity**를 원격 제어하는 시스템
+> 모바일(텔레그램/웹)에서 PC의 **Antigravity**를 원격 제어하는 시스템
 
 ## 시스템 아키텍처
 
 ```
-📱 스마트폰 (디스코드 or 웹 대시보드)
-    ↕ HTTP / WebSocket
+📱 스마트폰 (텔레그램 or 웹 대시보드)
+    ↕ HTTP / Polling
 🖥️ Flask 서버 (mailbox.json 기반 중계)
     ↕ 폴링
 🤖 브레인 에이전트 (AppleScript + PyAutoGUI로 Antigravity에 입력)
@@ -39,7 +39,7 @@ cd antigravity-mobile-agent
 ```bash
 # .env 설정 (첫 실행 시)
 cp .env.example .env
-# .env 파일을 열어 비밀번호 설정
+# .env 파일을 열어 텔레그램 봇 토큰 설정
 
 # 실행
 ./run.sh
@@ -53,8 +53,11 @@ cp .env.example .env
 ├── antigravity_host.py    # 통신 허브 (Flask 서버)
 ├── agent_brain.py         # 브레인 에이전트 (메시지 → Antigravity 입력)
 ├── auto_approver.py       # 오토 어프로버 (승인 버튼 자동 클릭)
-├── discord_bot.py         # 디스코드 봇 (/ask, /screenshot, /status)
+├── telegram_bot.py        # 텔레그램 봇 (양방향 통신 + 음성 인식)
+├── telegram_notifier.py   # 이벤트 기반 푸시 알림
+├── voice_transcriber.py   # 음성 인식(STT) 모듈
 ├── send_reply.py          # AI 응답 전달 도구
+├── discord_bot.py         # 디스코드 봇 (레거시)
 ├── capture_buttons.py     # 승인 버튼 이미지 캡처 도우미
 ├── templates/
 │   └── dashboard.html     # 모바일 웹 대시보드
@@ -64,22 +67,65 @@ cp .env.example .env
 ├── install_service.sh     # launchd 서비스 설치
 ├── uninstall_service.sh   # launchd 서비스 제거
 ├── setup_tailscale.sh     # Tailscale VPN 설정
-├── test_e2e.py            # E2E 테스트 (16개 케이스)
+├── test_e2e.py            # E2E 테스트
 └── requirements.txt
 ```
 
-## 🤖 디스코드 봇 설정 (선택)
+## 📱 텔레그램 봇 설정 (기본)
 
-1. [Discord Developer Portal](https://discord.com/developers/applications)에서 봇 생성
-2. Bot 설정에서 **Message Content Intent** 활성화
-3. `.env`에 토큰과 채널 ID 입력
-4. `./run.sh` 실행 시 자동으로 봇도 시작됨
+### 1. 봇 생성
+
+1. 텔레그램에서 **@BotFather** 검색 후 대화 시작
+2. `/newbot` 명령어 입력
+3. **봇 이름** 입력 (예: `내 안티그래비티`)
+4. **봇 유저네임** 입력 (예: `my_antigravity_bot`)
+5. 발급받은 **API 토큰** 복사
+
+### 2. Chat ID 확인
+
+1. 생성한 봇에게 아무 메시지 보내기
+2. 브라우저에서 열기:
+   ```
+   https://api.telegram.org/bot<토큰>/getUpdates
+   ```
+3. `"chat":{"id": 숫자}` 에서 **숫자가 Chat ID**
+
+### 3. .env 설정
+
+```ini
+TELEGRAM_TOKEN=발급받은_토큰
+TELEGRAM_CHAT_ID=확인한_채팅_ID
+```
+
+### 텔레그램 명령어
 
 | 명령어 | 설명 |
 |--------|------|
-| `/ask 질문` | Antigravity에 질문 전달 |
+| 일반 메시지 | Antigravity에 질문 전달 |
+| 🎤 음성 메시지 | STT 변환 후 전달 (활성화 시) |
 | `/screenshot` | 현재 화면 스크린샷 |
 | `/status` | 시스템 상태 확인 |
+| `/help` | 도움말 |
+
+## 🎤 음성 인식(STT) 설정 (선택)
+
+텔레그램에서 음성 메시지를 보내면 자동으로 텍스트로 변환하여 Antigravity에 전달합니다.
+
+### 설정 방법
+
+1. [Google Cloud Console](https://console.cloud.google.com/) 접속
+2. **API 및 서비스** > **사용 설정** > `Cloud Speech-to-Text API` 활성화
+3. **사용자 인증 정보** > **API 키 만들기**
+4. `.env` 파일 수정:
+
+```ini
+ENABLE_STT=true
+GOOGLE_CLOUD_API_KEY=발급받은_API_키
+```
+
+5. 봇 재시작
+
+> ⚠️ `ENABLE_STT=false`(기본값)이면 음성 메시지 수신 시 안내 메시지만 표시됩니다.
 
 ## 🌐 Tailscale (외부 네트워크)
 
@@ -88,6 +134,12 @@ cp .env.example .env
 ```
 
 같은 Wi-Fi가 아니어도 어디서든 접속 가능
+
+## 🤖 디스코드 봇 (레거시)
+
+> 텔레그램 사용을 권장합니다. 디스코드 봇은 호환성을 위해 유지됩니다.
+
+`.env`에 `DISCORD_TOKEN`과 `DISCORD_CHANNEL_ID`를 설정하면 사용 가능합니다.
 
 ## 📜 라이선스
 

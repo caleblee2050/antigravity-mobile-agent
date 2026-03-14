@@ -185,7 +185,48 @@ def test_dashboard_html():
     return r.status_code == 200 and "Antigravity" in r.text
 
 
-# ─── 실행 ───
+def test_notify_endpoint():
+    r = requests.post(
+        f"{BASE_URL}/api/notify",
+        json={"title": "E2E 테스트", "body": "범용 알림 테스트", "type": "custom"},
+        timeout=5,
+    )
+    return r.status_code == 200 and r.json().get("status") == "ok"
+
+
+def test_notify_empty_body():
+    r = requests.post(
+        f"{BASE_URL}/api/notify",
+        json={"title": "빈 내용", "body": "", "type": "custom"},
+        timeout=5,
+    )
+    return r.status_code == 400
+
+
+def test_notify_task_complete():
+    r = requests.post(
+        f"{BASE_URL}/api/notify",
+        json={"title": "빌드 완료", "body": "성공적으로 배포됨", "type": "task_complete"},
+        timeout=5,
+    )
+    return r.status_code == 200
+
+
+def test_voice_transcriber_import():
+    try:
+        import voice_transcriber
+        return hasattr(voice_transcriber, "transcribe_audio") and hasattr(voice_transcriber, "download_telegram_voice")
+    except ImportError:
+        return False
+
+
+def test_voice_transcriber_api_key():
+    try:
+        import voice_transcriber
+        return bool(voice_transcriber.GOOGLE_CLOUD_API_KEY)
+    except Exception:
+        return False
+
 
 def main():
     global PASSED, FAILED, TOTAL
@@ -234,6 +275,15 @@ def main():
     test("시스템 상태 조회", test_status)
     test("컴포넌트 상태 업데이트", test_component_status_update)
     test("빠른 명령어 조회", test_quick_commands)
+
+    print("\n📋 텔레그램 알림 테스트:")
+    test("범용 알림 전송 (/api/notify)", test_notify_endpoint)
+    test("빈 알림 거부", test_notify_empty_body)
+    test("작업완료 알림 타입", test_notify_task_complete)
+
+    print("\n📋 음성 인식 테스트:")
+    test("voice_transcriber 모듈 import", test_voice_transcriber_import)
+    test("음성 인식 API 키 설정 확인", test_voice_transcriber_api_key)
 
     # 결과
     print("")
