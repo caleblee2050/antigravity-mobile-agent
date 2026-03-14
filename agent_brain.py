@@ -16,6 +16,11 @@ import base64
 import io
 import logging
 import os
+import platform
+
+# OS 구별
+is_mac = platform.system() == "Darwin"
+is_windows = platform.system() == "Windows"
 
 # 로그 설정
 LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -42,45 +47,72 @@ MOBILE_PREFIX = "[📱 모바일] "
 
 
 def activate_antigravity():
-    """macOS: Antigravity 앱을 활성화 (최상단으로)"""
-    script = f'tell application "{APP_NAME}" to activate'
-    try:
-        subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=5)
-        time.sleep(0.8)
-        return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    """타겟 앱을 활성화 (최상단으로)"""
+    if is_mac:
+        script = f'tell application "{APP_NAME}" to activate'
+        try:
+            subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=5)
+            time.sleep(0.8)
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            logger.warning(f"⚠️ {APP_NAME} 앱을 활성화할 수 없습니다.")
+            return False
+    elif is_windows:
+        try:
+            import pygetwindow as gw
+            windows = gw.getWindowsWithTitle(APP_NAME)
+            if windows:
+                win = windows[0]
+                if win.isMinimized:
+                    win.restore()
+                win.activate()
+                time.sleep(0.8)
+                return True
+        except Exception as e:
+            logger.debug(f"Windows 활성화 실패: {e}")
         logger.warning(f"⚠️ {APP_NAME} 앱을 활성화할 수 없습니다.")
         return False
+    return False
 
 
 def get_window_bounds():
     """Antigravity 윈도우의 위치와 크기를 반환"""
-    script = '''
-    tell application "System Events"
-        tell process "Electron"
-            if (count of windows) > 0 then
-                set wPos to position of window 1
-                set wSize to size of window 1
-                return (item 1 of wPos as text) & "," & (item 2 of wPos as text) & "," & (item 1 of wSize as text) & "," & (item 2 of wSize as text)
-            end if
+    if is_mac:
+        script = '''
+        tell application "System Events"
+            tell process "Electron"
+                if (count of windows) > 0 then
+                    set wPos to position of window 1
+                    set wSize to size of window 1
+                    return (item 1 of wPos as text) & "," & (item 2 of wPos as text) & "," & (item 1 of wSize as text) & "," & (item 2 of wSize as text)
+                end if
+            end tell
         end tell
-    end tell
-    return ""
-    '''
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script], capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split(",")
-            return {
-                "x": int(parts[0]),
-                "y": int(parts[1]),
-                "w": int(parts[2]),
-                "h": int(parts[3]),
-            }
-    except Exception as e:
-        logger.debug(f"윈도우 좌표 가져오기 실패: {e}")
+        return ""
+        '''
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split(",")
+                return {
+                    "x": int(parts[0]),
+                    "y": int(parts[1]),
+                    "w": int(parts[2]),
+                    "h": int(parts[3]),
+                }
+        except Exception as e:
+            logger.debug(f"윈도우 좌표 가져오기 실패: {e}")
+    elif is_windows:
+        try:
+            import pygetwindow as gw
+            windows = gw.getWindowsWithTitle(APP_NAME)
+            if windows:
+                win = windows[0]
+                return {"x": win.left, "y": win.top, "w": win.width, "h": win.height}
+        except Exception as e:
+            logger.debug(f"윈도우 좌표 가져오기 실패: {e}")
     return None
 
 
@@ -137,14 +169,19 @@ def focus_chat_input():
     else:
         logger.warning("⚠️ 윈도우 좌표 획득 실패. 클릭 패스.")
 
-    # 2. 보험용 Cmd+L 한 번 더 전송
-    logger.info("🎯 보험용 Cmd+L 한 번 더 전송...")
-    script = '''
-    tell application "System Events"
-        keystroke "l" using command down
-    end tell
-    '''
-    subprocess.run(["osascript", "-e", script], check=False)
+    # 2. 보험용 단축키 한 번 더 전송
+    logger.info("🎯 보험용 마우스 대체 단축키 전송...")
+    if is_mac:
+        script = '''
+        tell application "System Events"
+            keystroke "l" using command down
+        end tell
+        '''
+        subprocess.run(["osascript", "-e", script], check=False)
+    else:
+        # Windows / Linux용 포커싱 단축키
+        pyautogui.hotkey("ctrl", "l")
+        
     time.sleep(0.3)
     
     return True
@@ -174,7 +211,12 @@ def type_message_to_antigravity(text: str):
     # 클립보드에 텍스트 복사 후 붙여넣기
     pyperclip.copy(prefixed_text)
     time.sleep(0.2)
-    pyautogui.hotkey("command", "v")
+    
+    if is_mac:
+        pyautogui.hotkey("command", "v")
+    else:
+        pyautogui.hotkey("ctrl", "v")
+        
     time.sleep(0.3)
 
     # Enter로 전송
@@ -188,19 +230,28 @@ def type_message_to_antigravity(text: str):
 def capture_screenshot():
     """전체 화면 스크린샷을 base64로 반환 (권한 있을 때만)"""
     try:
-        # LaunchAgent 백그라운드 구동 시 pyautogui.screenshot()이 
-        # "could not create image from display" 에러를 내며 죽는 현상 방지
-        import tempfile
         from PIL import Image
         
-        tmp_file = os.path.join(tempfile.gettempdir(), "antigravity_screen.png")
-        # macOS 네이티브 캡처 도구 사용 (-x: 소리 없음)
-        result = subprocess.run(["screencapture", "-x", tmp_file], capture_output=True)
-        
-        if result.returncode != 0 or not os.path.exists(tmp_file):
-            return ""
+        if is_mac:
+            # LaunchAgent 백그라운드 구동 시 pyautogui.screenshot()이 
+            # "could not create image from display" 에러를 내며 죽는 현상 방지
+            import tempfile
             
-        img = Image.open(tmp_file)
+            tmp_file = os.path.join(tempfile.gettempdir(), "antigravity_screen.png")
+            # macOS 네이티브 캡처 도구 사용 (-x: 소리 없음)
+            result = subprocess.run(["screencapture", "-x", tmp_file], capture_output=True)
+            
+            if result.returncode != 0 or not os.path.exists(tmp_file):
+                return ""
+                
+            img = Image.open(tmp_file)
+            should_remove = True
+        else:
+            # Windows 등에서는 백그라운드 스케줄러 사용자 세션에서 
+            # pyautogui 캡처가 정상 작동함
+            img = pyautogui.screenshot()
+            should_remove = False
+
         # 용량 절약을 위해 리사이즈
         img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
         
@@ -210,8 +261,9 @@ def capture_screenshot():
             img = img.convert('RGB')
         img.save(buffer, format="JPEG", quality=50)
         
-        # 임시 파일 삭제
-        os.remove(tmp_file)
+        # 임시 파일 삭제 (Mac 전용)
+        if is_mac and should_remove:
+            os.remove(tmp_file)
         
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
     except Exception as e:

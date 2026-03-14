@@ -7,4 +7,5 @@ python-dotenv>=1.0
 requests>=2.31
 discord.py>=2.3
 aiohttp>=3.9
+pygetwindow>=0.0.9
 # telegram_notifier.py는 기존 requests 라이브러리를 사용합니다 (추가 패키지 불필요)

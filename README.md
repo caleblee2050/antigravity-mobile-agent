@@ -26,7 +26,8 @@ cd antigravity-mobile-agent
 
 ## 📋 필수 조건
 
-- **macOS** (AppleScript, PyAutoGUI 사용)
+- **macOS** 통과 (AppleScript, PyAutoGUI, LaunchAgent 적용)
+- **Windows** 통과 (pygetwindow, Task Scheduler 호환 적용)
 - **Python 3.10+**
 - **Antigravity 앱** 설치 및 실행
 
@@ -39,10 +40,13 @@ cd antigravity-mobile-agent
 ```bash
 # .env 설정 (첫 실행 시)
 cp .env.example .env
-# .env 파일을 열어 텔레그램 봇 토큰 설정
 
-# 실행
-./run.sh
+# Mac 실행 (백그라운드 서비스 등록 권장)
+make install
+make start
+
+# Windows 실행 (작업 스케줄러 등록 권장)
+install_service.bat
 ```
 
 스마트폰 브라우저에서 `http://<내_IP>:9150` 접속
@@ -144,3 +148,13 @@ GOOGLE_CLOUD_API_KEY=발급받은_API_키
 ## 📜 라이선스
 
 MIT License
+## 💰 상용화 비전 (비즈니스 모델)
+
+본 프로젝트는 오픈소스 커뮤니티 장악과 엔터프라이즈(B2B) 시장 진출을 동시에 노리는 투트랙(Two-Track) 상용화 기획을 갖추고 있습니다.
+
+1. **[무료 생태계] 안티그래비티 모바일 개인 연동용 (오픈소스)**
+   - Cursor, Windsurf 등 AI 코딩 편집기를 활용하는 개발자들의 개인 생산성을 폭발시키는 오픈소스 엔진 제공.
+2. **[유료 생태계] Antigravity Cloud Enterprise (SaaS)**
+   - 다중 컴퓨팅 자원 + 수백 대의 AI 에이전트를 모바일/클라우드 및 Slack 연동 환경에서 한눈에 모니터링하고 제어하는 기업 관리자용 대시보드 플랜 제공.
+3. **[스토어 생태계] IDE 전용 커스텀 플러그인 생태계**
+   - 개발 엔진(언리얼, 유니티, IntelliJ 등) 포커싱 및 템플릿 마켓 등 서드파티 스토어 개발 지원.
