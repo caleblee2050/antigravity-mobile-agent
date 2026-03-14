@@ -42,7 +42,7 @@ MOBILE_PREFIX = "[📱 모바일] "
 
 
 def activate_antigravity():
-    """macOS: Antigravity 앱을 활성화"""
+    """macOS: Antigravity 앱을 활성화 (최상단으로)"""
     script = f'tell application "{APP_NAME}" to activate'
     try:
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=5)
@@ -53,12 +53,95 @@ def activate_antigravity():
         return False
 
 
+def get_window_bounds():
+    """Antigravity 윈도우의 위치와 크기를 반환"""
+    script = '''
+    tell application "System Events"
+        tell process "Electron"
+            if (count of windows) > 0 then
+                set wPos to position of window 1
+                set wSize to size of window 1
+                return (item 1 of wPos as text) & "," & (item 2 of wPos as text) & "," & (item 1 of wSize as text) & "," & (item 2 of wSize as text)
+            end if
+        end tell
+    end tell
+    return ""
+    '''
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split(",")
+            return {
+                "x": int(parts[0]),
+                "y": int(parts[1]),
+                "w": int(parts[2]),
+                "h": int(parts[3]),
+            }
+    except Exception as e:
+        logger.debug(f"윈도우 좌표 가져오기 실패: {e}")
+    return None
+
+
+def load_chat_input_config():
+    """agent_config.json에서 채팅 입력 좌표 설정 로드"""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_config.json")
+    try:
+        if os.path.exists(config_path):
+            import json
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return cfg.get("chat_input_offset", None)
+    except Exception:
+        pass
+    return None
+
+
+def focus_chat_input():
+    """
+    채팅 입력창에 포커스 — 다단계 전략
+
+    Electron 앱은 접근성 트리에 웹뷰 내부 요소를 노출하지 않으므로,
+    다음 전략을 순서대로 시도합니다:
+
+    1) agent_config.json에 사용자 지정 오프셋이 있으면 그걸 사용
+    2) 윈도우 하단 중앙 클릭 (대부분의 AI 채팅 앱은 입력이 하단에 위치)
+    """
+    # 전략 1: 사용자 지정 좌표 (agent_config.json에 chat_input_offset 설정)
+    custom_offset = load_chat_input_config()
+    if custom_offset:
+        bounds = get_window_bounds()
+        if bounds:
+            click_x = bounds["x"] + custom_offset.get("x", bounds["w"] // 2)
+            click_y = bounds["y"] + custom_offset.get("y", bounds["h"] - 60)
+            pyautogui.click(click_x, click_y)
+            time.sleep(0.3)
+            logger.info(f"🎯 사용자 지정 좌표로 클릭: ({click_x}, {click_y})")
+            return True
+
+    # 전략 2: 윈도우 하단 중앙 클릭 (범용)
+    bounds = get_window_bounds()
+    if bounds:
+        # 채팅 입력은 보통 윈도우 하단 50~80px 영역에 위치
+        click_x = bounds["x"] + (bounds["w"] // 2)
+        click_y = bounds["y"] + bounds["h"] - 60
+        pyautogui.click(click_x, click_y)
+        time.sleep(0.3)
+        logger.info(f"🎯 윈도우 하단 중앙 클릭: ({click_x}, {click_y})")
+        return True
+
+    logger.warning("⚠️ 채팅 입력창 포커스 실패 — 윈도우 좌표를 가져올 수 없습니다.")
+    return False
+
+
 def type_message_to_antigravity(text: str):
     """
     Antigravity 채팅창에 메시지 입력.
     1. Antigravity 앱 활성화
-    2. 클립보드에 텍스트 복사 → Cmd+V 붙여넣기
-    3. Enter 전송
+    2. 채팅 입력창 포커스 (다단계 전략)
+    3. 클립보드에 텍스트 복사 → Cmd+V 붙여넣기
+    4. Enter 전송
     """
     # 모바일에서 온 메시지임을 표시
     prefixed_text = f"{MOBILE_PREFIX}{text}"
@@ -67,7 +150,11 @@ def type_message_to_antigravity(text: str):
     if not activate_antigravity():
         return False
 
-    time.sleep(0.5)
+    time.sleep(0.3)
+
+    # 채팅 입력창에 포커스
+    focus_chat_input()
+    time.sleep(0.3)
 
     # 클립보드에 텍스트 복사 후 붙여넣기
     pyperclip.copy(prefixed_text)
