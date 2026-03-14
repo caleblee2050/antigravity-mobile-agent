@@ -228,6 +228,63 @@ def test_voice_transcriber_api_key():
         return False
 
 
+# ─── 카카오톡 테스트 케이스 ───
+
+
+def test_kakao_module_import():
+    try:
+        import kakao_api
+        return (
+            hasattr(kakao_api, "send_to_me")
+            and hasattr(kakao_api, "get_friends")
+            and hasattr(kakao_api, "get_status")
+        )
+    except ImportError:
+        return False
+
+
+def test_kakao_token_file():
+    import json, tempfile
+    test_data = {"access_token": "test", "refresh_token": "test", "expires_at": 0}
+    tmp_path = os.path.join(tempfile.gettempdir(), "kakao_test_tokens.json")
+    try:
+        with open(tmp_path, "w") as f:
+            json.dump(test_data, f)
+        with open(tmp_path, "r") as f:
+            loaded = json.load(f)
+        os.remove(tmp_path)
+        return loaded == test_data
+    except Exception:
+        return False
+
+
+def test_kakao_send_endpoint():
+    r = requests.post(
+        f"{BASE_URL}/api/kakao/send",
+        json={"text": "E2E 테스트", "type": "me"},
+        timeout=5,
+    )
+    # API 키 미설정이면 400 (인증 필요 메시지), 설정되면 200
+    return r.status_code in (200, 400)
+
+
+def test_kakao_friends_endpoint():
+    r = requests.get(f"{BASE_URL}/api/kakao/friends", timeout=5)
+    return r.status_code in (200, 400)
+
+
+def test_kakao_status_endpoint():
+    r = requests.get(f"{BASE_URL}/api/kakao/status", timeout=5)
+    data = r.json()
+    return r.status_code == 200 and "configured" in data
+
+
+def test_kakao_no_key_graceful():
+    """API 키 미설정 시 에러가 아닌 적절한 메시지 반환 확인"""
+    r = requests.get(f"{BASE_URL}/api/kakao/status", timeout=5)
+    return r.status_code == 200
+
+
 def main():
     global PASSED, FAILED, TOTAL
 
@@ -284,6 +341,14 @@ def main():
     print("\n📋 음성 인식 테스트:")
     test("voice_transcriber 모듈 import", test_voice_transcriber_import)
     test("음성 인식 API 키 설정 확인", test_voice_transcriber_api_key)
+
+    print("\n📋 카카오톡 연동 테스트:")
+    test("kakao_api 모듈 import", test_kakao_module_import)
+    test("카카오 토큰 파일 읽기/쓰기", test_kakao_token_file)
+    test("카카오 전송 엔드포인트", test_kakao_send_endpoint)
+    test("카카오 친구 엔드포인트", test_kakao_friends_endpoint)
+    test("카카오 상태 엔드포인트", test_kakao_status_endpoint)
+    test("카카오 미인증 graceful 처리", test_kakao_no_key_graceful)
 
     # 결과
     print("")

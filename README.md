@@ -2,8 +2,9 @@
 
 > 모바일(텔레그램/웹)에서 PC의 **Antigravity**를 원격 제어하는 시스템
 
-## ✨ 최신 업데이트 핵심 기능 (v1.1+)
+## ✨ 최신 업데이트 핵심 기능 (v1.2)
 
+- **💬 카카오톡 REST API 연동**: 카카오 OAuth 인증, 나에게 메시지 보내기, 친구 목록 조회, 친구에게 메시지 전송 기능 지원. 토큰 자동 갱신 및 안전한 저장.
 - **🧠 Zero-Config 자연어 룰 저장 파이프라인**: 텔레그램에서 "이건 에이전트 룰이야" 또는 "이건 개발자 룰이야" 라고 말하는 것만으로 복잡한 파일 설정 없이 전역(비서용)/지역(코딩용) 컨텍스트를 분리하여 자동 영구 기억.
 - **📱 텔레그램 공식 봇 전환 & 음성인식(STT) 결합**: 디스코드를 넘어 글로벌 메신저인 텔레그램을 기본 모바일 컨트롤러로 채택하여 접근성 극대화.
 - **🖥️ 완벽한 크로스 플랫폼 데몬 지원**: macOS(`launchd`) 뿐만 아니라 Windows(`Task Scheduler`, `pygetwindow`) 환경에서도 보이지 않는 형태의 완벽한 백그라운드 서비스 동작 보장.
@@ -67,6 +68,7 @@ install_service.bat
 ├── telegram_bot.py        # 텔레그램 봇 (양방향 통신 + 음성 인식)
 ├── telegram_notifier.py   # 이벤트 기반 푸시 알림
 ├── voice_transcriber.py   # 음성 인식(STT) 모듈
+├── kakao_api.py           # 카카오톡 REST API 연동 모듈
 ├── send_reply.py          # AI 응답 전달 도구
 ├── discord_bot.py         # 디스코드 봇 (레거시)
 ├── capture_buttons.py     # 승인 버튼 이미지 캡처 도우미
@@ -151,6 +153,39 @@ GOOGLE_CLOUD_API_KEY=발급받은_API_키
 5. 봇 재시작
 
 > ⚠️ `ENABLE_STT=false`(기본값)이면 음성 메시지 수신 시 안내 메시지만 표시됩니다.
+
+## 💬 카카오톡 연동 (선택)
+
+한국 사용자 대상 카카오톡 메시지 전송을 지원합니다.
+
+### 설정 방법
+
+1. [Kakao Developers](https://developers.kakao.com/) 접속 후 앱 생성
+2. **카카오 로그인** 활성화 및 **Redirect URI** 등록: `http://localhost:9250/oauth`
+3. **동의항목**에서 `talk_message`, `friends` 권한 활성화
+4. `.env` 파일 설정:
+
+```ini
+KAKAO_REST_API_KEY=발급받은_REST_API_키
+KAKAO_CLIENT_SECRET=클라이언트_시크릿
+KAKAO_REDIRECT_URI=http://localhost:9250/oauth
+```
+
+5. OAuth 인증 실행:
+
+```bash
+python kakao_api.py auth
+```
+
+### 카카오톡 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `python kakao_api.py auth` | OAuth 인증 (최초 1회) |
+| `python kakao_api.py send [메시지]` | 나에게 카톡 보내기 |
+| `python kakao_api.py friends` | 친구 목록 조회 |
+| `python kakao_api.py send_friend <UUID> [메시지]` | 친구에게 보내기 |
+| `python kakao_api.py status` | 연동 상태 확인 |
 
 ## 🌐 Tailscale (외부 네트워크)
 

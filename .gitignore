@@ -17,3 +17,6 @@ images/*.png
 
 # macOS
 .DS_Store
+
+# 카카오톡 토큰 (민감 정보)
+kakao_tokens.json

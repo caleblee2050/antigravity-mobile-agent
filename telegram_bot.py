@@ -300,10 +300,16 @@ class TelegramBot:
             help_text = (
                 "🤖 <b>안티그래비티 모바일 에이전트</b>\n\n"
                 "일반 메시지를 보내면 안티그래비티에 전달됩니다.\n\n"
-                "<b>명령어:</b>\n"
+                "<b>기본 명령어:</b>\n"
                 "/status — 시스템 상태 확인\n"
                 "/screenshot — 현재 화면 스크린샷\n"
-                "/help — 도움말"
+                "/help — 도움말\n\n"
+                "<b>카카오톡 명령어:</b>\n"
+                "/카톡 [메시지] — 나에게 카톡 보내기\n"
+                "/카톡친구 [이름] [메시지] — 친구에게 카톡 보내기\n"
+                "/카톡목록 — 발송 가능한 친구 목록\n"
+                "/카톡상태 — 카카오 연동 상태\n"
+                "/카톡인증 — 카카오 OAuth 인증"
             )
             self.send_message(help_text)
 
@@ -348,8 +354,144 @@ class TelegramBot:
             except Exception as e:
                 self.send_message(f"❌ 스크린샷 오류: {e}")
 
+        # ─── 카카오톡 명령어 ─────────────────────────────
+
+        elif cmd == "/카톡":
+            msg_text = text[len("/카톡"):].strip()
+            if not msg_text:
+                self.send_message("💬 사용법: /카톡 [보낼 메시지]\n\n예: /카톡 오늘 미팅 5시입니다")
+                return
+            self._kakao_send_to_me(msg_text)
+
+        elif cmd == "/카톡친구":
+            parts = text[len("/카톡친구"):].strip().split(" ", 1)
+            if len(parts) < 2:
+                self.send_message("💬 사용법: /카톡친구 [이름] [메시지]\n\n예: /카톡친구 홍길동 내일 점심 먹자")
+                return
+            friend_name, msg_text = parts[0], parts[1]
+            self._kakao_send_to_friend(friend_name, msg_text)
+
+        elif cmd == "/카톡목록":
+            self._kakao_list_friends()
+
+        elif cmd == "/카톡상태":
+            self._kakao_check_status()
+
+        elif cmd == "/카톡인증":
+            self.send_message(
+                "🔐 <b>카카오 OAuth 인증</b>\n\n"
+                "PC에서 다음 명령어를 실행해주세요:\n\n"
+                "<code>cd 안티그래비티\ 모바일에이전트</code>\n"
+                "<code>python kakao_api.py auth</code>\n\n"
+                "브라우저가 열리면 카카오 계정으로 로그인하세요."
+            )
+
         else:
             self.send_message("❓ 모르는 명령어입니다. /help 를 입력하세요.")
+
+    # ─── 카카오톡 헬퍼 메서드 ────────────────────────────
+
+    def _kakao_send_to_me(self, text: str):
+        """카카오톡 나에게 보내기"""
+        try:
+            resp = requests.post(
+                f"{HOST_URL}/api/kakao/send",
+                json={"text": text, "type": "me"},
+                timeout=10,
+            )
+            data = resp.json()
+            if resp.status_code == 200 and data.get("success"):
+                self.send_message(f"✅ <b>카카오톡 전송 완료</b>\n\n💬 {self._escape_html(text[:200])}")
+            else:
+                self.send_message(f"❌ 카카오톡 전송 실패: {data.get('message', '알 수 없는 오류')}")
+        except Exception as e:
+            self.send_message(f"❌ 카카오톡 서버 오류: {e}")
+
+    def _kakao_send_to_friend(self, friend_name: str, text: str):
+        """카카오톡 친구에게 보내기"""
+        try:
+            # 1) 친구 목록 조회
+            resp = requests.get(f"{HOST_URL}/api/kakao/friends", timeout=10)
+            if resp.status_code != 200:
+                self.send_message("❌ 친구 목록을 가져올 수 없습니다.")
+                return
+
+            data = resp.json()
+            friends = data.get("friends", [])
+
+            # 이름으로 친구 찾기
+            matched = [f for f in friends if friend_name in f.get("profile_nickname", "")]
+            if not matched:
+                names = ", ".join([f.get("profile_nickname", "?") for f in friends[:10]])
+                self.send_message(
+                    f"❌ '{friend_name}' 친구를 찾을 수 없습니다.\n\n"
+                    f"발송 가능한 친구: {names or '없음'}"
+                )
+                return
+
+            # 2) 메시지 전송
+            uuids = [f["uuid"] for f in matched]
+            resp2 = requests.post(
+                f"{HOST_URL}/api/kakao/send",
+                json={"text": text, "type": "friend", "receiver_uuids": uuids},
+                timeout=10,
+            )
+            data2 = resp2.json()
+            if resp2.status_code == 200 and data2.get("success"):
+                names = ", ".join([f.get("profile_nickname", "") for f in matched])
+                self.send_message(f"✅ <b>카카오톡 전송 완료</b>\n👤 {names}\n💬 {self._escape_html(text[:200])}")
+            else:
+                self.send_message(f"❌ 전송 실패: {data2.get('message', '알 수 없는 오류')}")
+        except Exception as e:
+            self.send_message(f"❌ 카카오톡 오류: {e}")
+
+    def _kakao_list_friends(self):
+        """카카오톡 발송 가능한 친구 목록 조회"""
+        try:
+            resp = requests.get(f"{HOST_URL}/api/kakao/friends", timeout=10)
+            data = resp.json()
+
+            if resp.status_code == 200 and data.get("success"):
+                friends = data.get("friends", [])
+                if not friends:
+                    self.send_message("📋 메시지 수신에 동의한 친구가 없습니다.")
+                    return
+
+                lines = [f"👥 <b>카카오톡 친구 목록</b> ({len(friends)}명)\n"]
+                for i, f in enumerate(friends[:20], 1):
+                    lines.append(f"  {i}. {f.get('profile_nickname', '알 수 없음')}")
+                if len(friends) > 20:
+                    lines.append(f"  ⋯ 외 {len(friends) - 20}명")
+                self.send_message("\n".join(lines))
+            else:
+                self.send_message(f"❌ {data.get('message', '친구 목록 조회 실패')}")
+        except Exception as e:
+            self.send_message(f"❌ 친구 목록 오류: {e}")
+
+    def _kakao_check_status(self):
+        """카카오톡 연동 상태 확인"""
+        try:
+            resp = requests.get(f"{HOST_URL}/api/kakao/status", timeout=5)
+            data = resp.json()
+
+            configured = data.get("configured", False)
+            authorized = data.get("authorized", False)
+            expired = data.get("expired", None)
+
+            lines = ["📊 <b>카카오톡 연동 상태</b>\n"]
+            lines.append(f"  {'🟢' if configured else '🔴'} REST API 키: {'설정됨' if configured else '미설정'}")
+            lines.append(f"  {'🟢' if authorized else '🔴'} OAuth 인증: {'완료' if authorized else '필요'}")
+            if expired is not None:
+                lines.append(f"  {'🔴' if expired else '🟢'} 토큰 상태: {'만료됨' if expired else '유효'}")
+
+            if not configured:
+                lines.append("\n💡 .env에 KAKAO_REST_API_KEY를 설정하세요.")
+            elif not authorized:
+                lines.append("\n💡 /카톡인증 으로 OAuth 인증을 진행하세요.")
+
+            self.send_message("\n".join(lines))
+        except Exception as e:
+            self.send_message(f"❌ 상태 확인 실패: {e}")
 
     def handle_voice_message(self, voice: dict):
         """텔레그램 음성 메시지 처리 (STT 변환)"""

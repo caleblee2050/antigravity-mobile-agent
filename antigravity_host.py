@@ -303,8 +303,75 @@ def get_quick_commands():
         {"label": "📝 TODO", "text": "현재 프로젝트의 TODO 리스트를 정리해줘"},
         {"label": "🧪 테스트", "text": "테스트를 실행하고 결과를 알려줘"},
         {"label": "📊 상태", "text": "프로젝트의 현재 상태를 요약해줘"},
+        {"label": "💬 카톡 보내기", "text": "나에게 카카오톡 메시지를 보내줘"},
     ]
     return jsonify({"commands": commands})
+
+
+# ─── 카카오톡 API 엔드포인트 ──────────────────────────────
+
+def _get_kakao_api():
+    """kakao_api 모듈 lazy import (미설정 시 graceful 처리)"""
+    try:
+        import kakao_api
+        return kakao_api
+    except ImportError:
+        return None
+
+
+@app.route("/api/kakao/send", methods=["POST"])
+def kakao_send():
+    """💬 카카오톡 메시지 전송"""
+    kakao = _get_kakao_api()
+    if not kakao:
+        return jsonify({"error": "kakao_api 모듈이 없습니다"}), 500
+
+    data = request.json
+    text = data.get("text", "").strip()
+    send_type = data.get("type", "me")  # "me" | "friend"
+
+    if not text:
+        return jsonify({"error": "빈 메시지"}), 400
+
+    if send_type == "me":
+        result = kakao.send_to_me(text)
+    elif send_type == "friend":
+        uuids = data.get("receiver_uuids", [])
+        if not uuids:
+            return jsonify({"error": "수신자 UUID가 필요합니다"}), 400
+        result = kakao.send_to_friend(uuids, text)
+    else:
+        return jsonify({"error": f"지원하지 않는 전송 타입: {send_type}"}), 400
+
+    if result.get("success"):
+        add_to_history("시스템", f"[카카오톡] {text[:100]}", "kakao_send")
+        return jsonify(result)
+    else:
+        return jsonify(result), 400
+
+
+@app.route("/api/kakao/friends", methods=["GET"])
+def kakao_friends():
+    """👥 카카오톡 친구 목록 조회"""
+    kakao = _get_kakao_api()
+    if not kakao:
+        return jsonify({"error": "kakao_api 모듈이 없습니다"}), 500
+
+    result = kakao.get_friends()
+    if result.get("success"):
+        return jsonify(result)
+    else:
+        return jsonify(result), 400
+
+
+@app.route("/api/kakao/status", methods=["GET"])
+def kakao_status():
+    """📊 카카오톡 연동 상태"""
+    kakao = _get_kakao_api()
+    if not kakao:
+        return jsonify({"configured": False, "authorized": False, "message": "kakao_api 모듈 없음"})
+
+    return jsonify(kakao.get_status())
 
 
 def _get_local_ip() -> str:
