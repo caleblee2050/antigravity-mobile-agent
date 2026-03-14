@@ -12,6 +12,7 @@
   .env에 TELEGRAM_TOKEN, TELEGRAM_CHAT_ID 설정 필요
 """
 
+import json
 import os
 import sys
 import time
@@ -36,6 +37,7 @@ if ENABLE_STT:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 PID_FILE = os.path.join(BASE_DIR, "telegram_bot.pid")
+CONFIG_FILE = os.path.join(BASE_DIR, "agent_config.json")
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 # 로그 설정 (중복 핸들러 방지)
@@ -103,6 +105,33 @@ class TelegramBot:
         self.last_update_id = 0
         self.last_outbound_timestamp = ""
         self.running = True
+        self.nickname_setup_state = None  # None | "awaiting_user_nick" | "awaiting_agent_nick"
+        self.config = self._load_config()
+
+    def _load_config(self) -> dict:
+        """agent_config.json 로드"""
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {"user_nickname": "", "agent_nickname": "", "first_run_completed": False, "language": "ko"}
+
+    def _save_config(self):
+        """agent_config.json 저장"""
+        try:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"설정 저장 실패: {e}")
+
+    def get_greeting(self, template: str) -> str:
+        """호칭이 설정되어 있으면 적용된 인사말 반환"""
+        user_nick = self.config.get("user_nickname", "")
+        if user_nick:
+            return template.replace("{user}", user_nick)
+        return template.replace("{user} ", "").replace("{user}", "")
 
     def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """텔레그램 메시지 전송"""
@@ -202,6 +231,11 @@ class TelegramBot:
             logger.warning(f"미허용 chat_id: {chat_id}")
             return
 
+        # 호칭 설정 모드 처리
+        if self.nickname_setup_state:
+            self._handle_nickname_setup(text)
+            return
+
         # 음성 메시지 처리
         voice = message.get("voice")
         if voice:
@@ -218,6 +252,45 @@ class TelegramBot:
 
         # 일반 메시지 → Host 서버로 전달
         self.forward_to_host(text)
+
+    def _start_nickname_setup(self):
+        """호칭 설정 대화 시작"""
+        self.nickname_setup_state = "awaiting_user_nick"
+        self.send_message(
+            "👋 <b>처음 만나서 반갑습니다!</b>\n\n"
+            "서로 편하게 부를 수 있도록 호칭을 정해볼까요?\n\n"
+            "<b>제가 당신을 어떻게 불러드릴까요?</b>\n"
+            "(예: 보스, 대장, 형, 캡틴 등)",
+        )
+        logger.info("호칭 설정 대화 시작")
+
+    def _handle_nickname_setup(self, text: str):
+        """호칭 설정 대화 처리"""
+        if not text:
+            return
+
+        if self.nickname_setup_state == "awaiting_user_nick":
+            self.config["user_nickname"] = text
+            self.nickname_setup_state = "awaiting_agent_nick"
+            self.send_message(
+                f"✅ 알겠습니다. 앞으로 <b>{text}</b>님이라고 부를게요!\n\n"
+                f"그럼 <b>저를 뭐라고 불러주실 건가요?</b>\n"
+                f"(예: 안티, 에이전트, 비서, 자비스 등)",
+            )
+        elif self.nickname_setup_state == "awaiting_agent_nick":
+            self.config["agent_nickname"] = text
+            self.config["first_run_completed"] = True
+            self._save_config()
+            self.nickname_setup_state = None
+            user_nick = self.config["user_nickname"]
+            self.send_message(
+                f"🎉 호칭 설정 완료!\n\n"
+                f"👤 당신 → <b>{user_nick}</b>\n"
+                f"🤖 저 → <b>{text}</b>\n\n"
+                f"{user_nick}님, 앞으로 잘 부탁드려요! 💪\n"
+                f"이제 메시지를 보내시면 안티그래비티에 바로 전달됩니다."
+            )
+            logger.info(f"호칭 설정 완료: 사용자={user_nick}, 에이전트={text}")
 
     def handle_command(self, text: str):
         """텔레그램 명령어 처리"""
@@ -375,8 +448,18 @@ class TelegramBot:
         logger.info(f"📡 Host 서버: {HOST_URL}")
         logger.info(f"📺 Chat ID: {TELEGRAM_CHAT_ID}")
 
-        # 시작 알림
-        self.send_message("🚀 <b>안티그래비티 모바일 에이전트</b> 연결됨!\n\n/help 로 사용법을 확인하세요.")
+        # 첫 실행 시 호칭 설정
+        if not self.config.get("first_run_completed", False):
+            self._start_nickname_setup()
+        else:
+            # 시작 알림 (호칭 적용)
+            user_nick = self.config.get("user_nickname", "")
+            agent_nick = self.config.get("agent_nickname", "안티그래비티")
+            greeting = f"{user_nick}님, " if user_nick else ""
+            self.send_message(
+                f"🚀 <b>{agent_nick}</b> 연결됨!\n\n"
+                f"{greeting}준비 완료입니다. /help 로 사용법을 확인하세요."
+            )
 
         # 컴포넌트 상태 보고
         try:
