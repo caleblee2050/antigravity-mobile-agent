@@ -10,8 +10,8 @@ cd "$SCRIPT_DIR"
 cleanup() {
     echo ""
     echo "🛑 모든 프로세스 종료 중..."
-    kill $HOST_PID $APPROVER_PID $TELEGRAM_PID 2>/dev/null
-    wait $HOST_PID $APPROVER_PID $TELEGRAM_PID 2>/dev/null
+    kill $HOST_PID $APPROVER_PID $TELEGRAM_PID $BRAIN_PID 2>/dev/null
+    wait $HOST_PID $APPROVER_PID $TELEGRAM_PID $BRAIN_PID 2>/dev/null
     echo "✅ 종료 완료"
     exit 0
 }
@@ -100,5 +100,49 @@ echo "📋 로그 확인: tail -f logs/server.log"
 echo "종료하려면 Ctrl+C를 누르세요."
 echo ""
 
-# 4. 브레인 에이전트 시작 (포그라운드 — Ctrl+C로 전체 종료)
-python3 agent_brain.py
+# 4. 브레인 에이전트 시작 (백그라운드)
+echo "🧠 브레인 에이전트 시작..."
+python3 agent_brain.py >> logs/brain.log 2>&1 &
+BRAIN_PID=$!
+echo "   PID: $BRAIN_PID"
+
+echo ""
+echo "🔄 워치독 모드: 프로세스 감시 시작 (크래시 시 자동 재시작)"
+echo ""
+
+# 5. 워치독 루프 — 자식 프로세스 감시 및 자동 재시작
+while true; do
+    sleep 15
+
+    # Flask 호스트 감시
+    if ! kill -0 $HOST_PID 2>/dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ⚠️ Flask 호스트 크래시 감지! 재시작..."
+        python3 antigravity_host.py >> logs/server.log 2>&1 &
+        HOST_PID=$!
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ Flask 호스트 재시작 완료 (PID: $HOST_PID)"
+    fi
+
+    # 오토 어프로버 감시
+    if ! kill -0 $APPROVER_PID 2>/dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ⚠️ 오토 어프로버 크래시 감지! 재시작..."
+        python3 auto_approver.py >> logs/approver_console.log 2>&1 &
+        APPROVER_PID=$!
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 오토 어프로버 재시작 완료 (PID: $APPROVER_PID)"
+    fi
+
+    # 텔레그램 봇 감시
+    if [ -n "$TELEGRAM_PID" ] && ! kill -0 $TELEGRAM_PID 2>/dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ⚠️ 텔레그램 봇 크래시 감지! 재시작..."
+        python3 telegram_bot.py > /dev/null 2>&1 &
+        TELEGRAM_PID=$!
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 텔레그램 봇 재시작 완료 (PID: $TELEGRAM_PID)"
+    fi
+
+    # 브레인 에이전트 감시
+    if ! kill -0 $BRAIN_PID 2>/dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ⚠️ 브레인 에이전트 크래시 감지! 재시작..."
+        python3 agent_brain.py >> logs/brain.log 2>&1 &
+        BRAIN_PID=$!
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 브레인 에이전트 재시작 완료 (PID: $BRAIN_PID)"
+    fi
+done
