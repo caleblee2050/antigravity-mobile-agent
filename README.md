@@ -118,7 +118,43 @@ TELEGRAM_CHAT_ID=확인한_채팅_ID
 | 🎤 음성 메시지 | STT 변환 후 전달 (활성화 시) |
 | `/screenshot` | 현재 화면 스크린샷 |
 | `/status` | 시스템 상태 확인 |
+| `/windows` | 열린 안티그래비티 창 목록 + 현재 타겟 |
+| `/target [번호]` | 특정 창으로 타겟 변경 |
+| `/target auto` | 자동 탐색 모드 (에이전트 폴더 매칭) |
 | `/help` | 도움말 |
+
+## 🎯 워크스페이스 시스템 (멀티 창 관리)
+
+안티그래비티를 여러 창으로 열어두고(개발용 + 에이전트용), 텔레그램에서 특정 창을 타겟팅할 수 있습니다.
+
+### 자동 타겟팅
+
+`agent_config.json`의 `workspace.agent_folder`에 설정된 폴더명이 창 제목에 포함된 안티그래비티 창을 자동으로 찾습니다.
+
+```json
+{
+  "workspace": {
+    "agent_folder": "~/.gemini/antigravity/anti-agent",
+    "target_window_index": null
+  }
+}
+```
+
+### 타겟 우선순위
+
+1. `/target`으로 수동 지정된 창
+2. `agent_config.json`에 저장된 인덱스
+3. 창 제목에 에이전트 폴더명이 포함된 창 (자동 탐색)
+4. 기본값: 1번 창
+
+### `/에이전트` 워크플로우
+
+안티그래비티 채팅에서 `/에이전트`를 입력하면 에이전트 전용 폴더를 새 창으로 자동 오픈합니다.
+
+```bash
+# 수동 실행
+antigravity --new-window ~/.gemini/antigravity/anti-agent
+```
 
 ## 🧠 커스텀 룰(규칙) 자동 세팅 가이드
 
