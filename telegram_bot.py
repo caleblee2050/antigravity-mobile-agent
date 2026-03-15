@@ -64,19 +64,20 @@ POLL_INTERVAL = 3  # AI 응답 폴링 간격 (초)
 
 
 def ensure_single_instance():
-    """PID 파일로 중복 실행 방지 — 이미 실행 중이면 기존 프로세스 kill"""
+    """PID 파일로 중복 실행 방지 — 이미 실행 중이면 자기 자신이 종료"""
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, "r") as f:
                 old_pid = int(f.read().strip())
-            # 기존 프로세스가 살아있으면 종료
-            os.kill(old_pid, signal.SIGTERM)
-            time.sleep(1)
-            logger.info(f"⚠️ 기존 프로세스(PID {old_pid}) 종료함")
+            if old_pid != os.getpid():
+                # 기존 프로세스가 살아있으면 → 자기가 종료
+                os.kill(old_pid, 0)  # 존재 확인만 (signal 0)
+                logger.info(f"⚠️ 이미 실행 중(PID {old_pid}), 새 인스턴스 종료")
+                sys.exit(0)
         except (ProcessLookupError, ValueError):
             pass  # 이미 죽었거나 잘못된 PID
         except PermissionError:
-            logger.warning("기존 프로세스 종료 권한 없음")
+            pass  # 확인 불가 → 새로 시작
 
     # 현재 PID 기록
     with open(PID_FILE, "w") as f:
@@ -662,14 +663,33 @@ class TelegramBot:
         if not self.config.get("first_run_completed", False):
             self._start_nickname_setup()
         else:
-            # 시작 알림 (호칭 적용)
-            user_nick = self.config.get("user_nickname", "")
-            agent_nick = self.config.get("agent_nickname", "안티그래비티")
-            greeting = f"{user_nick}님, " if user_nick else ""
-            self.send_message(
-                f"🚀 <b>{agent_nick}</b> 연결됨!\n\n"
-                f"{greeting}준비 완료입니다. /help 로 사용법을 확인하세요."
-            )
+            # 시작 알림 — 30초 쿨다운 (워치독 재시작 시 스팸 방지)
+            startup_msg_file = os.path.join(os.path.dirname(__file__), ".last_startup_msg")
+            should_send = True
+            try:
+                if os.path.exists(startup_msg_file):
+                    last_ts = os.path.getmtime(startup_msg_file)
+                    if time.time() - last_ts < 30:
+                        should_send = False
+                        logger.info("⏭️ 시작 메시지 쿨다운 (30초 이내 재시작)")
+            except Exception:
+                pass
+
+            if should_send:
+                user_nick = self.config.get("user_nickname", "")
+                agent_nick = self.config.get("agent_nickname", "안티그래비티")
+                greeting = f"{user_nick}님, " if user_nick else ""
+                self.send_message(
+                    f"🚀 <b>{agent_nick}</b> 연결됨!\n\n"
+                    f"{greeting}준비 완료입니다. /help 로 사용법을 확인하세요."
+                )
+
+            # 쿨다운 타임스탬프 갱신
+            try:
+                with open(startup_msg_file, "w") as f:
+                    f.write(str(time.time()))
+            except Exception:
+                pass
 
         # 컴포넌트 상태 보고
         try:
