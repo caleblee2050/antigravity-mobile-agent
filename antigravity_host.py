@@ -277,6 +277,45 @@ def get_status():
     })
 
 
+@app.route("/api/windows", methods=["GET"])
+def get_windows():
+    """🖥️ 현재 열린 안티그래비티 창 목록 반환"""
+    try:
+        from agent_brain import list_all_windows, find_agent_window
+        windows = list_all_windows()
+        current_target = find_agent_window()
+        result = []
+        for i, w in enumerate(windows):
+            result.append({
+                "index": i + 1,
+                "title": w["title"],
+                "position": {"x": w["x"], "y": w["y"]},
+                "size": {"w": w["w"], "h": w["h"]},
+                "is_target": (i + 1) == current_target,
+            })
+        return jsonify({"windows": result, "current_target": current_target})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/target", methods=["POST"])
+def set_target():
+    """🎯 타겟 창 변경"""
+    try:
+        from agent_brain import set_target_window, list_all_windows
+        data = request.json
+        index = data.get("index")  # None이면 자동 모드로 복원
+        if index is not None:
+            index = int(index)
+            windows = list_all_windows()
+            if index < 1 or index > len(windows):
+                return jsonify({"error": f"유효하지 않은 인덱스: {index} (1~{len(windows)})"}), 400
+        set_target_window(index)
+        return jsonify({"status": "ok", "target": index if index else "auto"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/component/status", methods=["POST"])
 def update_component_status():
     """컴포넌트 상태 업데이트"""

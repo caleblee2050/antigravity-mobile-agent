@@ -303,6 +303,8 @@ class TelegramBot:
                 "<b>기본 명령어:</b>\n"
                 "/status — 시스템 상태 확인\n"
                 "/screenshot — 현재 화면 스크린샷\n"
+                "/windows — 열린 창 목록\n"
+                "/target [번호] — 타겟 창 변경\n"
                 "/help — 도움말\n\n"
                 "<b>카카오톡 명령어:</b>\n"
                 "/카톡 [메시지] — 나에게 카톡 보내기\n"
@@ -353,6 +355,72 @@ class TelegramBot:
                     self.send_message("❌ 스크린샷 가져오기 실패")
             except Exception as e:
                 self.send_message(f"❌ 스크린샷 오류: {e}")
+
+        # ─── 워크스페이스 명령어 ────────────────────────────
+
+        elif cmd == "/windows":
+            try:
+                resp = requests.get(f"{HOST_URL}/api/windows", timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    windows = data.get("windows", [])
+                    current = data.get("current_target", 1)
+                    if not windows:
+                        self.send_message("❌ 열린 안티그래비티 창이 없습니다.")
+                        return
+                    lines = ["🖥️ <b>안티그래비티 창 목록</b>\n"]
+                    for w in windows:
+                        marker = " 🎯" if w["is_target"] else ""
+                        lines.append(
+                            f"  <b>{w['index']}.</b> {w['title']}"
+                            f" ({w['position']['x']},{w['position']['y']}){marker}"
+                        )
+                    lines.append(f"\n현재 타겟: <b>{current}번</b> 창")
+                    lines.append("\n💡 /target [번호] 로 변경")
+                    self.send_message("\n".join(lines))
+                else:
+                    self.send_message("❌ 창 목록 조회 실패")
+            except Exception as e:
+                self.send_message(f"❌ 오류: {e}")
+
+        elif cmd == "/target":
+            parts = text.split()
+            if len(parts) < 2:
+                self.send_message(
+                    "🎯 <b>사용법</b>: /target [번호]\n\n"
+                    "예시:\n"
+                    "  /target 2 — 2번 창으로 변경\n"
+                    "  /target auto — 자동 탐색 모드\n\n"
+                    "💡 /windows 로 창 목록 먼저 확인하세요."
+                )
+                return
+            target_val = parts[1]
+            try:
+                if target_val.lower() == "auto":
+                    resp = requests.post(
+                        f"{HOST_URL}/api/target",
+                        json={"index": None},
+                        timeout=5,
+                    )
+                    if resp.status_code == 200:
+                        self.send_message("✅ 타겟을 <b>자동 탐색</b> 모드로 변경했습니다.")
+                    else:
+                        self.send_message(f"❌ 변경 실패: {resp.json().get('error', '')}")
+                else:
+                    index = int(target_val)
+                    resp = requests.post(
+                        f"{HOST_URL}/api/target",
+                        json={"index": index},
+                        timeout=5,
+                    )
+                    if resp.status_code == 200:
+                        self.send_message(f"✅ 타겟을 <b>{index}번</b> 창으로 변경했습니다.")
+                    else:
+                        self.send_message(f"❌ {resp.json().get('error', '변경 실패')}")
+            except ValueError:
+                self.send_message("❌ 숫자를 입력해주세요. 예: /target 2")
+            except Exception as e:
+                self.send_message(f"❌ 오류: {e}")
 
         # ─── 카카오톡 명령어 ─────────────────────────────
 

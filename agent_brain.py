@@ -14,6 +14,7 @@ import pyautogui
 import pyperclip
 import base64
 import io
+import json
 import logging
 import os
 import platform
@@ -45,11 +46,138 @@ APP_NAME = "Antigravity"
 # 모바일 메시지 프리픽스
 MOBILE_PREFIX = "[📱 모바일] "
 
+# 타겟 창 인덱스 (None이면 자동 탐색)
+_target_window_index = None
+
+
+def load_workspace_config():
+    """agent_config.json에서 에이전트 워크스페이스 설정 로드"""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_config.json")
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            ws = cfg.get("workspace", {})
+            folder = ws.get("agent_folder", "~/.gemini/antigravity/anti-agent")
+            folder = os.path.expanduser(folder)
+            return {
+                "agent_folder": folder,
+                "agent_folder_name": os.path.basename(folder),
+                "target_window_index": ws.get("target_window_index"),
+            }
+    except Exception as e:
+        logger.debug(f"워크스페이스 설정 로드 실패: {e}")
+    return {"agent_folder": "", "agent_folder_name": "anti-agent", "target_window_index": None}
+
+
+def list_all_windows():
+    """모든 Electron(Antigravity) 창의 제목, 위치, 크기를 반환"""
+    windows = []
+    if is_mac:
+        script = '''
+        tell application "System Events"
+            tell process "Electron"
+                set winCount to count of windows
+                set resultList to {}
+                repeat with i from 1 to winCount
+                    set wName to name of window i
+                    set wPos to position of window i
+                    set wSize to size of window i
+                    set end of resultList to wName & "|" & (item 1 of wPos as text) & "|" & (item 2 of wPos as text) & "|" & (item 1 of wSize as text) & "|" & (item 2 of wSize as text)
+                end repeat
+                set AppleScript's text item delimiters to ";;;"
+                return resultList as text
+            end tell
+        end tell
+        '''
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                for entry in result.stdout.strip().split(";;;"):
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    parts = entry.split("|")
+                    if len(parts) == 5:
+                        windows.append({
+                            "title": parts[0].strip(),
+                            "x": int(parts[1]), "y": int(parts[2]),
+                            "w": int(parts[3]), "h": int(parts[4]),
+                        })
+        except Exception as e:
+            logger.debug(f"창 목록 가져오기 실패: {e}")
+    elif is_windows:
+        try:
+            import pygetwindow as gw
+            for win in gw.getWindowsWithTitle(APP_NAME):
+                windows.append({
+                    "title": win.title,
+                    "x": win.left, "y": win.top,
+                    "w": win.width, "h": win.height,
+                })
+        except Exception as e:
+            logger.debug(f"창 목록 가져오기 실패: {e}")
+    return windows
+
+
+def find_agent_window():
+    """
+    에이전트 워크스페이스가 열린 창의 인덱스(1-based)를 반환.
+    탐색 우선순위:
+      1. _target_window_index (수동 지정, /target 명령)
+      2. agent_config.json의 target_window_index (저장된 값)
+      3. 창 제목에 에이전트 폴더명이 포함된 창
+      4. 기본값: 1 (가장 앞 창)
+    """
+    global _target_window_index
+    ws_config = load_workspace_config()
+
+    # 1순위: 수동 지정
+    if _target_window_index is not None:
+        return _target_window_index
+
+    # 2순위: 저장된 인덱스
+    saved_idx = ws_config.get("target_window_index")
+    if saved_idx is not None:
+        return saved_idx
+
+    # 3순위: 창 제목 매칭
+    folder_name = ws_config.get("agent_folder_name", "anti-agent")
+    all_wins = list_all_windows()
+    for i, w in enumerate(all_wins):
+        if folder_name.lower() in w["title"].lower():
+            logger.info(f"🎯 에이전트 창 발견: #{i+1} '{w['title']}'")
+            return i + 1  # AppleScript는 1-based
+
+    # 4순위: 기본값
+    return 1
+
+
+def set_target_window(index: int | None):
+    """타겟 창 인덱스를 설정 (None이면 자동 탐색으로 복원)"""
+    global _target_window_index
+    _target_window_index = index
+    logger.info(f"🎯 타겟 창 변경: {'자동' if index is None else f'#{index}'}")
+
 
 def activate_antigravity():
-    """타겟 앱을 활성화 (최상단으로)"""
+    """에이전트 워크스페이스가 열린 타겟 창을 활성화 (최상단으로)"""
+    target_idx = find_agent_window()
+
     if is_mac:
-        script = f'tell application "{APP_NAME}" to activate'
+        # AXRaise로 특정 창만 최상단으로 올리고 앱 활성화
+        script = f'''
+        tell application "System Events"
+            tell process "Electron"
+                if (count of windows) >= {target_idx} then
+                    perform action "AXRaise" of window {target_idx}
+                end if
+            end tell
+        end tell
+        tell application "{APP_NAME}" to activate
+        '''
         try:
             subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=5)
             time.sleep(0.8)
@@ -61,8 +189,9 @@ def activate_antigravity():
         try:
             import pygetwindow as gw
             windows = gw.getWindowsWithTitle(APP_NAME)
-            if windows:
-                win = windows[0]
+            idx = target_idx - 1  # 0-based
+            if windows and idx < len(windows):
+                win = windows[idx]
                 if win.isMinimized:
                     win.restore()
                 win.activate()
@@ -76,14 +205,16 @@ def activate_antigravity():
 
 
 def get_window_bounds():
-    """Antigravity 윈도우의 위치와 크기를 반환"""
+    """에이전트 타겟 창의 위치와 크기를 반환"""
+    target_idx = find_agent_window()
+
     if is_mac:
-        script = '''
+        script = f'''
         tell application "System Events"
             tell process "Electron"
-                if (count of windows) > 0 then
-                    set wPos to position of window 1
-                    set wSize to size of window 1
+                if (count of windows) >= {target_idx} then
+                    set wPos to position of window {target_idx}
+                    set wSize to size of window {target_idx}
                     return (item 1 of wPos as text) & "," & (item 2 of wPos as text) & "," & (item 1 of wSize as text) & "," & (item 2 of wSize as text)
                 end if
             end tell
@@ -108,8 +239,9 @@ def get_window_bounds():
         try:
             import pygetwindow as gw
             windows = gw.getWindowsWithTitle(APP_NAME)
-            if windows:
-                win = windows[0]
+            idx = target_idx - 1
+            if windows and idx < len(windows):
+                win = windows[idx]
                 return {"x": win.left, "y": win.top, "w": win.width, "h": win.height}
         except Exception as e:
             logger.debug(f"윈도우 좌표 가져오기 실패: {e}")

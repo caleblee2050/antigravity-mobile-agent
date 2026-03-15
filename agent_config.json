@@ -2,5 +2,9 @@
   "user_nickname": "캡틴으로 불러줘",
   "agent_nickname": "안티 라고 부를께",
   "first_run_completed": true,
-  "language": "ko"
+  "language": "ko",
+  "workspace": {
+    "agent_folder": "~/.gemini/antigravity/anti-agent",
+    "target_window_index": null
+  }
 }
