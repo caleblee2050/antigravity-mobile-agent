@@ -13,7 +13,7 @@
 """
 
 # ─── 버전 정보 ───────────────────────────────────────
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 GITHUB_REPO = "caleblee2050/antigravity-mobile-agent"
 
 import json
@@ -21,6 +21,7 @@ import os
 import sys
 import time
 import signal
+import subprocess
 import threading
 import logging
 import requests
@@ -130,8 +131,15 @@ class TelegramBot:
         self._update_checked = False  # 시작 시 1회만 체크
 
     def _load_config(self) -> dict:
-        """agent_config.json 로드"""
+        """agent_config.json 로드 (없으면 example에서 자동 생성)"""
         try:
+            if not os.path.exists(CONFIG_FILE):
+                # example 파일에서 자동 복사
+                example_file = os.path.join(BASE_DIR, "agent_config.example.json")
+                if os.path.exists(example_file):
+                    import shutil
+                    shutil.copy2(example_file, CONFIG_FILE)
+                    logger.info("📋 agent_config.example.json → agent_config.json 자동 생성")
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     return json.load(f)
@@ -264,7 +272,7 @@ class TelegramBot:
                 params={
                     "offset": self.last_update_id + 1,
                     "timeout": 10,
-                    "allowed_updates": '["message"]',
+                    "allowed_updates": '["message","callback_query"]',
                 },
                 timeout=15,
             )
@@ -287,7 +295,12 @@ class TelegramBot:
             return []
 
     def handle_update(self, update: dict):
-        """수신된 텔레그램 메시지 처리"""
+        """수신된 텔레그램 메시지/콜백 처리"""
+        # 인라인 버튼 콜백 처리
+        if "callback_query" in update:
+            self._handle_callback_query(update["callback_query"])
+            return
+
         message = update.get("message", {})
         chat_id = str(message.get("chat", {}).get("id", ""))
         text = message.get("text", "").strip()
@@ -705,13 +718,7 @@ class TelegramBot:
                 notes = data.get("body", "")[:200]
 
                 if latest and latest != VERSION:
-                    self.send_message(
-                        f"🆕 <b>새 업데이트가 있습니다!</b>\n\n"
-                        f"현재 버전: v{VERSION}\n"
-                        f"최신 버전: v{latest}\n\n"
-                        f"{notes[:200]}{'...' if len(notes) >= 200 else ''}\n\n"
-                        f"💡 업데이트: <code>git pull</code>"
-                    )
+                    self._send_update_available(latest, notes)
                 elif not silent:
                     self.send_message(f"✅ 최신 버전입니다 (v{VERSION})")
             elif resp.status_code == 404:
@@ -726,11 +733,7 @@ class TelegramBot:
                     if tags:
                         latest_tag = tags[0].get("name", "").lstrip("v")
                         if latest_tag and latest_tag != VERSION:
-                            self.send_message(
-                                f"🆕 <b>새 버전이 있습니다!</b>\n\n"
-                                f"현재: v{VERSION} → 최신: v{latest_tag}\n"
-                                f"💡 업데이트: <code>git pull</code>"
-                            )
+                            self._send_update_available(latest_tag, "")
                         elif not silent:
                             self.send_message(f"✅ 최신 버전입니다 (v{VERSION})")
                     elif not silent:
@@ -743,6 +746,93 @@ class TelegramBot:
             if not silent:
                 self.send_message(f"⚠️ 업데이트 확인 실패: {e}")
             logger.warning(f"업데이트 확인 실패: {e}")
+
+    def _send_update_available(self, latest: str, notes: str):
+        """업데이트 가능 알림 + 인라인 키보드 버튼"""
+        text = (
+            f"🆕 <b>새 업데이트가 있습니다!</b>\n\n"
+            f"현재 버전: v{VERSION}\n"
+            f"최신 버전: v{latest}\n"
+        )
+        if notes:
+            text += f"\n{notes[:200]}{'...' if len(notes) >= 200 else ''}\n"
+
+        # 인라인 키보드 버튼
+        keyboard = {
+            "inline_keyboard": [[
+                {"text": "✅ 지금 업데이트", "callback_data": "do_update"},
+                {"text": "⏰ 나중에", "callback_data": "skip_update"},
+            ]]
+        }
+        try:
+            requests.post(
+                f"{self.api_url}/sendMessage",
+                json={
+                    "chat_id": self.chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "reply_markup": keyboard,
+                },
+                timeout=10,
+            )
+        except Exception:
+            # 인라인 버튼 실패 시 일반 메시지로 폴백
+            self.send_message(text + "\n💡 업데이트: <code>git pull</code>")
+
+    def _handle_callback_query(self, callback_query: dict):
+        """인라인 버튼 콜백 처리 (업데이트 등)"""
+        callback_id = callback_query.get("id", "")
+        data = callback_query.get("data", "")
+
+        # 콜백 응답 (버튼 로딩 해제)
+        try:
+            requests.post(
+                f"{self.api_url}/answerCallbackQuery",
+                json={"callback_query_id": callback_id},
+                timeout=5,
+            )
+        except Exception:
+            pass
+
+        if data == "do_update":
+            self._do_update()
+        elif data == "skip_update":
+            self.send_message("⏰ 업데이트를 나중으로 미룹니다.")
+
+    def _do_update(self):
+        """실제 업데이트 수행: git pull + pip install + 재시작"""
+        self.send_message("🔄 업데이트 중...")
+        try:
+            # git pull
+            result = subprocess.run(
+                ["git", "pull", "origin", "main"],
+                capture_output=True, text=True, timeout=30,
+                cwd=BASE_DIR,
+            )
+            if result.returncode != 0:
+                self.send_message(f"❌ git pull 실패:\n<code>{result.stderr[:300]}</code>")
+                return
+
+            # pip install
+            pip_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
+                capture_output=True, text=True, timeout=60,
+                cwd=BASE_DIR,
+            )
+
+            self.send_message(
+                f"✅ <b>업데이트 완료!</b>\n\n"
+                f"<code>{result.stdout[:200]}</code>\n\n"
+                f"🔄 봇을 재시작합니다..."
+            )
+
+            # 재시작 — 새 프로세스 시작 후 현재 종료
+            import time
+            time.sleep(1)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+        except Exception as e:
+            self.send_message(f"❌ 업데이트 실패: {e}")
 
     def _submit_feedback(self, feedback_type: str, content: str):
         """사용자 피드백을 GitHub Issue로 생성하거나 로컬 저장"""

@@ -49,6 +49,34 @@ MOBILE_PREFIX = "[📱 모바일] "
 # 타겟 창 인덱스 (None이면 자동 탐색)
 _target_window_index = None
 
+# 접근성 권한 상태
+_accessibility_checked = False
+_accessibility_granted = False
+
+
+def check_accessibility_permission() -> bool:
+    """macOS 접근성 권한 확인 — 없으면 마우스/키보드 자동화 불가"""
+    global _accessibility_checked, _accessibility_granted
+    if not is_mac:
+        return True
+    if _accessibility_checked:
+        return _accessibility_granted
+    _accessibility_checked = True
+    try:
+        # AXIsProcessTrusted: 현재 프로세스가 접근성 권한을 가지고 있는지 확인
+        result = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get name of first process'],
+            capture_output=True, text=True, timeout=3,
+        )
+        _accessibility_granted = result.returncode == 0
+        if not _accessibility_granted:
+            logger.warning("⚠️ macOS 접근성 권한이 필요합니다!")
+        return _accessibility_granted
+    except Exception:
+        _accessibility_granted = False
+        return False
+
 
 def load_workspace_config():
     """agent_config.json에서 에이전트 워크스페이스 설정 로드"""
@@ -449,6 +477,42 @@ def main():
     logger.info(f"🎯 대상 앱: {APP_NAME}")
     logger.info(f"⏱️ 폴링 간격: {POLL_INTERVAL}초")
     logger.info("─" * 40)
+
+    # macOS 접근성 권한 확인
+    if is_mac and not check_accessibility_permission():
+        logger.error(
+            "❌ macOS 접근성 권한 필요!\n"
+            "   시스템 설정 > 개인정보 보호 > 접근성 → 터미널/Python 허용\n"
+            "   시스템 설정 > 개인정보 보호 > 화면 녹화 → 터미널/Python 허용"
+        )
+        # 텔레그램으로 안내 시도
+        try:
+            import dotenv
+            dotenv.load_dotenv()
+            tg_token = os.environ.get("TELEGRAM_TOKEN")
+            tg_chat = os.environ.get("TELEGRAM_CHAT_ID")
+            if tg_token and tg_chat:
+                import requests as req
+                req.post(
+                    f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                    json={
+                        "chat_id": tg_chat,
+                        "text": (
+                            "⚠️ <b>macOS 접근성 권한이 필요합니다!</b>\n\n"
+                            "마우스 자동 클릭이 동작하려면:\n"
+                            "1. <b>시스템 설정</b> → 개인정보 보호\n"
+                            "2. <b>접근성</b> → 터미널(또는 Python) ✅ 허용\n"
+                            "3. <b>화면 녹화</b> → 터미널(또는 Python) ✅ 허용\n"
+                            "4. 봇 재시작\n\n"
+                            "💡 권한 부여 후 <code>run.sh</code>를 다시 실행하세요."
+                        ),
+                        "parse_mode": "HTML",
+                    },
+                    timeout=5,
+                )
+        except Exception:
+            pass
+
     logger.info("📱 스마트폰에서 메시지를 보내면 Antigravity에 자동 입력됩니다.")
 
     screenshot_counter = 0

@@ -181,28 +181,36 @@ else
     echo -e "  ${YELLOW}⏭️${NC}  건너뜀 (나중에 .env에서 TELEGRAM_TOKEN, TELEGRAM_CHAT_ID 설정)"
 fi
 
-# ─── 7. 음성 인식(STT) 설정 (선택) ───
+# ─── 7. 음성 인식(STT) + 에이전트 워크스페이스 ───
 echo ""
-echo -e "${BLUE}[7/8]${NC} 음성 인식(STT) 설정 (선택)"
+echo -e "${BLUE}[7/8]${NC} 음성 인식(STT) 및 에이전트 설정"
 echo ""
-echo "  텔레그램에서 음성 메시지를 보내면 텍스트로 변환합니다."
-echo "  Google Cloud Speech-to-Text API 키가 필요합니다."
-echo "  (Google Cloud Console > API > Speech-to-Text > 사용자 인증 정보)"
+echo "  ✅ 음성 인식(STT): Whisper 로컬 모델 (API 키 불필요, 무료)"
+echo "  ✅ 음성 응답(TTS): edge-tts (무료)"
+echo -e "  ${GREEN}추가 설정 없이 자동 활성화됩니다.${NC}"
 echo ""
 
-read -p "  음성 인식을 활성화할까요? (y/n) [n]: " SETUP_STT
-if [ "$SETUP_STT" = "y" ]; then
-    read -p "  Google Cloud API Key: " GC_API_KEY
+# 에이전트 전용 워크스페이스 생성
+AGENT_DIR="$HOME/.gemini/antigravity/anti-agent"
+mkdir -p "$AGENT_DIR"
+echo -e "  ${GREEN}✅${NC} 에이전트 워크스페이스: $AGENT_DIR"
 
-    if [ -n "$GC_API_KEY" ]; then
-        sed -i '' "s|ENABLE_STT=false|ENABLE_STT=true|" .env
-        sed -i '' "s|# GOOGLE_CLOUD_API_KEY=.*|GOOGLE_CLOUD_API_KEY=$GC_API_KEY|" .env
-        echo -e "  ${GREEN}✅${NC} 음성 인식(STT) 활성화 완료"
-    else
-        echo -e "  ${YELLOW}⚠️${NC} API 키가 비어있습니다. 나중에 .env를 직접 수정하세요."
-    fi
+# /에이전트 워크플로우 설치 (안티그래비티에서 '/에이전트' 입력 시 새 창으로 열림)
+WORKFLOW_DIR="$HOME/.gemini/antigravity/.agents/workflows"
+mkdir -p "$WORKFLOW_DIR"
+WF_FILE="$WORKFLOW_DIR/에이전트.md"
+if [ ! -f "$WF_FILE" ]; then
+    cat > "$WF_FILE" <<'WFEOF'
+---
+description: 에이전트 전용 폴더로 새 안티그래비티 창 열기
+---
+// turbo-all
+1. 에이전트 폴더 생성: `mkdir -p ~/.gemini/antigravity/anti-agent`
+2. 새 창으로 열기: `antigravity --new-window ~/.gemini/antigravity/anti-agent`
+WFEOF
+    echo -e "  ${GREEN}✅${NC} /에이전트 워크플로우 설치 완료"
 else
-    echo -e "  ${YELLOW}⏭️${NC}  건너뜀 (나중에 .env에서 ENABLE_STT=true + GOOGLE_CLOUD_API_KEY 설정)"
+    echo -e "  ${YELLOW}⚠️${NC} 기존 워크플로우 유지"
 fi
 
 # ─── 완료 ───
