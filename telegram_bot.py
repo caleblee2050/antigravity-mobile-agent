@@ -129,6 +129,13 @@ class TelegramBot:
         self.voice_mode = os.getenv("TTS_AUTO_REPLY", "false").lower() == "true"  # 음성 응답 모드
         self.config = self._load_config()
         self._update_checked = False  # 시작 시 1회만 체크
+        self._update_notified_version = None  # 이미 알린 버전 (중복 알림 방지)
+
+        # 주기적 업데이트 체크 (1시간마다)
+        self._update_thread = threading.Thread(
+            target=self._periodic_update_check, daemon=True
+        )
+        self._update_thread.start()
 
     def _load_config(self) -> dict:
         """agent_config.json 로드 (없으면 example에서 자동 생성)"""
@@ -703,6 +710,51 @@ class TelegramBot:
             self.send_message(f"❌ 상태 확인 실패: {e}")
 
     # ─── 업데이트 체크 & 피드백 ─────────────────────────
+
+    UPDATE_CHECK_INTERVAL = 3600  # 1시간 (초)
+
+    def _periodic_update_check(self):
+        """백그라운드에서 주기적으로 업데이트 체크 (기존 버전 봇이 실행 중이어도 알림 가능)"""
+        # 첫 체크는 30초 후 (시작 직후 혼잡 방지)
+        time.sleep(30)
+        while self.running:
+            try:
+                latest = self._get_latest_version()
+                if latest and latest != VERSION and latest != self._update_notified_version:
+                    self._update_notified_version = latest
+                    self._send_update_available(latest, "")
+                    logger.info(f"🔔 주기적 업데이트 알림 전송: v{VERSION} → v{latest}")
+            except Exception as e:
+                logger.debug(f"주기적 업데이트 체크 오류: {e}")
+            # 다음 체크까지 대기 (10초 단위로 running 체크)
+            for _ in range(self.UPDATE_CHECK_INTERVAL // 10):
+                if not self.running:
+                    return
+                time.sleep(10)
+
+    def _get_latest_version(self) -> str:
+        """GitHub에서 최신 버전 문자열 가져오기"""
+        try:
+            resp = requests.get(
+                f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+                timeout=5,
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("tag_name", "").lstrip("v")
+            elif resp.status_code == 404:
+                resp2 = requests.get(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/tags",
+                    timeout=5,
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                )
+                if resp2.status_code == 200:
+                    tags = resp2.json()
+                    if tags:
+                        return tags[0].get("name", "").lstrip("v")
+        except Exception:
+            pass
+        return ""
 
     def _check_for_updates(self, silent: bool = True):
         """GitHub 최신 릴리즈/태그와 현재 버전 비교"""
