@@ -9,4 +9,7 @@ discord.py>=2.3
 aiohttp>=3.9
 pygetwindow>=0.0.9
 openpyxl>=3.1
-# telegram_notifier.py는 기존 requests 라이브러리를 사용합니다 (추가 패키지 불필요)
+# TTS (음성 응답)
+edge-tts>=7.0
+# STT (음성 인식 — Whisper 로컬, API 키 불필요)
+faster-whisper>=1.0

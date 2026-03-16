@@ -12,6 +12,10 @@
   .env에 TELEGRAM_TOKEN, TELEGRAM_CHAT_ID 설정 필요
 """
 
+# ─── 버전 정보 ───────────────────────────────────────
+VERSION = "1.2.0"
+GITHUB_REPO = "caleblee2050/antigravity-mobile-agent"
+
 import json
 import os
 import sys
@@ -33,6 +37,20 @@ if ENABLE_STT:
         voice_transcriber = _vt
     except ImportError:
         logging.getLogger("telegram_bot").warning("voice_transcriber 모듈을 찾을 수 없습니다. STT 비활성화됨.")
+
+# TTS(음성 합성) 활성화 여부
+ENABLE_TTS = os.getenv("ENABLE_TTS", "true").lower() == "true"
+tts_engine_instance = None
+if ENABLE_TTS:
+    try:
+        from tts_engine import get_tts_engine, list_available_engines
+        tts_engine_instance = get_tts_engine()
+        if tts_engine_instance:
+            logging.getLogger("telegram_bot").info(f"🔊 TTS 엔진 로드: {tts_engine_instance.name}")
+        else:
+            logging.getLogger("telegram_bot").warning("⚠️ 사용 가능한 TTS 엔진이 없습니다.")
+    except ImportError:
+        logging.getLogger("telegram_bot").warning("tts_engine 모듈을 찾을 수 없습니다. TTS 비활성화됨.")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
@@ -107,7 +125,9 @@ class TelegramBot:
         self.last_outbound_timestamp = ""
         self.running = True
         self.nickname_setup_state = None  # None | "awaiting_user_nick" | "awaiting_agent_nick"
+        self.voice_mode = os.getenv("TTS_AUTO_REPLY", "false").lower() == "true"  # 음성 응답 모드
         self.config = self._load_config()
+        self._update_checked = False  # 시작 시 1회만 체크
 
     def _load_config(self) -> dict:
         """agent_config.json 로드"""
@@ -188,6 +208,51 @@ class TelegramBot:
     def _escape_html(self, text: str) -> str:
         """HTML 특수문자 이스케이프"""
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def send_voice(self, text: str) -> bool:
+        """텍스트를 TTS로 변환하여 텔레그램 음성 메시지로 전송"""
+        if not tts_engine_instance:
+            logger.warning("음성 전송 실패: TTS 엔진 없음")
+            return False
+
+        try:
+            # 긴 텍스트는 요약하여 TTS
+            tts_text = text[:500] if len(text) > 500 else text
+            # 코드 블록 제거 (음성으로는 부적합)
+            import re
+            tts_text = re.sub(r'```[\s\S]*?```', '코드 블록 생략', tts_text)
+            tts_text = re.sub(r'`[^`]+`', '', tts_text)
+            # HTML 태그 제거
+            tts_text = re.sub(r'<[^>]+>', '', tts_text)
+            # 빈 줄 정리
+            tts_text = re.sub(r'\n{3,}', '\n\n', tts_text).strip()
+
+            if not tts_text:
+                return False
+
+            audio_bytes = tts_engine_instance.synthesize(tts_text)
+            if not audio_bytes:
+                logger.error("TTS 합성 실패: 오디오 없음")
+                return False
+
+            # 텔레그램 음성 메시지 전송
+            files = {"voice": ("response.ogg", audio_bytes, "audio/ogg")}
+            payload = {"chat_id": TELEGRAM_CHAT_ID}
+            resp = requests.post(
+                f"{TELEGRAM_API}/sendVoice",
+                data=payload,
+                files=files,
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                logger.info(f"🔊 음성 응답 전송 완료 ({len(audio_bytes)} bytes)")
+                return True
+            else:
+                logger.error(f"음성 전송 실패: {resp.status_code} {resp.text[:200]}")
+                return False
+        except Exception as e:
+            logger.error(f"음성 전송 오류: {e}")
+            return False
 
     # ─── 텔레그램 메시지 수신 (Long Polling) ─────────────
 
@@ -299,22 +364,32 @@ class TelegramBot:
 
         if cmd == "/help" or cmd == "/start":
             help_text = (
-                "🤖 <b>안티그래비티 모바일 에이전트</b>\n\n"
+                f"🤖 <b>안티그래비티 모바일 에이전트</b> v{VERSION}\n\n"
                 "일반 메시지를 보내면 안티그래비티에 전달됩니다.\n\n"
                 "<b>기본 명령어:</b>\n"
                 "/status — 시스템 상태 확인\n"
                 "/screenshot — 현재 화면 스크린샷\n"
                 "/windows — 열린 창 목록\n"
                 "/target [번호] — 타겟 창 변경\n"
+                "/voice — 🔊 음성 응답 ON/OFF\n"
+                "/tts — TTS 엔진 상태\n"
                 "/help — 도움말\n\n"
                 "<b>카카오톡 명령어:</b>\n"
                 "/카톡 [메시지] — 나에게 카톡 보내기\n"
                 "/카톡친구 [이름] [메시지] — 친구에게 카톡 보내기\n"
                 "/카톡목록 — 발송 가능한 친구 목록\n"
                 "/카톡상태 — 카카오 연동 상태\n"
-                "/카톡인증 — 카카오 OAuth 인증"
+                "/카톡인증 — 카카오 OAuth 인증\n\n"
+                "<b>피드백:</b>\n"
+                "/feedback [내용] — 요구사항·건의\n"
+                "/bug [내용] — 버그 신고\n"
+                "/update — 업데이트 확인"
             )
             self.send_message(help_text)
+            # 시작 시 업데이트 체크 (1회)
+            if not self._update_checked:
+                self._update_checked = True
+                self._check_for_updates(silent=True)
 
         elif cmd == "/status":
             try:
@@ -455,6 +530,58 @@ class TelegramBot:
                 "브라우저가 열리면 카카오 계정으로 로그인하세요."
             )
 
+        # ─── 피드백 및 업데이트 명령어 ──────────────────
+
+        elif cmd == "/feedback":
+            content = text[len("/feedback"):].strip()
+            if not content:
+                self.send_message(
+                    "💬 <b>사용법</b>: /feedback [내용]\n\n"
+                    "예: /feedback 스크린샷 품질을 높여주세요\n\n"
+                    "요구사항, 건의, 아이디어 등 자유롭게 보내주세요!"
+                )
+                return
+            self._submit_feedback("enhancement", content)
+
+        elif cmd == "/bug":
+            content = text[len("/bug"):].strip()
+            if not content:
+                self.send_message(
+                    "🐛 <b>사용법</b>: /bug [내용]\n\n"
+                    "예: /bug 음성 인식이 가끔 빈 값을 반환합니다\n\n"
+                    "가능하면 재현 방법도 적어주세요!"
+                )
+                return
+            self._submit_feedback("bug", content)
+
+        elif cmd == "/update":
+            self._check_for_updates(silent=False)
+
+        elif cmd == "/voice":
+            self.voice_mode = not self.voice_mode
+            status = "🔊 ON" if self.voice_mode else "🔇 OFF"
+            engine_name = tts_engine_instance.name if tts_engine_instance else "없음"
+            self.send_message(
+                f"🎙️ <b>음성 응답 모드: {status}</b>\n\n"
+                f"TTS 엔진: {engine_name}\n"
+                f"음성 입력 시 음성으로 답변합니다."
+            )
+
+        elif cmd == "/tts":
+            if tts_engine_instance:
+                self.send_message(
+                    f"🔊 <b>TTS 엔진 상태</b>\n\n"
+                    f"  🟢 활성 엔진: {tts_engine_instance.name}\n"
+                    f"  🎙️ 음성 모드: {'ON' if self.voice_mode else 'OFF'}\n\n"
+                    f"💡 /voice 로 음성 응답을 토글하세요."
+                )
+            else:
+                self.send_message(
+                    "🔇 <b>TTS 비활성화</b>\n\n"
+                    "edge-tts를 설치하세요:\n"
+                    "<code>pip install edge-tts</code>"
+                )
+
         else:
             self.send_message("❓ 모르는 명령어입니다. /help 를 입력하세요.")
 
@@ -562,6 +689,123 @@ class TelegramBot:
         except Exception as e:
             self.send_message(f"❌ 상태 확인 실패: {e}")
 
+    # ─── 업데이트 체크 & 피드백 ─────────────────────────
+
+    def _check_for_updates(self, silent: bool = True):
+        """GitHub 최신 릴리즈/태그와 현재 버전 비교"""
+        try:
+            resp = requests.get(
+                f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+                timeout=5,
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                latest = data.get("tag_name", "").lstrip("v")
+                notes = data.get("body", "")[:200]
+
+                if latest and latest != VERSION:
+                    self.send_message(
+                        f"🆕 <b>새 업데이트가 있습니다!</b>\n\n"
+                        f"현재 버전: v{VERSION}\n"
+                        f"최신 버전: v{latest}\n\n"
+                        f"{notes[:200]}{'...' if len(notes) >= 200 else ''}\n\n"
+                        f"💡 업데이트: <code>git pull</code>"
+                    )
+                elif not silent:
+                    self.send_message(f"✅ 최신 버전입니다 (v{VERSION})")
+            elif resp.status_code == 404:
+                # 릴리즈가 아직 없으면 태그로 체크
+                resp2 = requests.get(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/tags",
+                    timeout=5,
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                )
+                if resp2.status_code == 200:
+                    tags = resp2.json()
+                    if tags:
+                        latest_tag = tags[0].get("name", "").lstrip("v")
+                        if latest_tag and latest_tag != VERSION:
+                            self.send_message(
+                                f"🆕 <b>새 버전이 있습니다!</b>\n\n"
+                                f"현재: v{VERSION} → 최신: v{latest_tag}\n"
+                                f"💡 업데이트: <code>git pull</code>"
+                            )
+                        elif not silent:
+                            self.send_message(f"✅ 최신 버전입니다 (v{VERSION})")
+                    elif not silent:
+                        self.send_message(f"ℹ️ 현재 버전: v{VERSION} (릴리즈 정보 없음)")
+                elif not silent:
+                    self.send_message(f"ℹ️ 현재 버전: v{VERSION}")
+            elif not silent:
+                self.send_message(f"ℹ️ 현재 버전: v{VERSION} (업데이트 확인 실패)")
+        except Exception as e:
+            if not silent:
+                self.send_message(f"⚠️ 업데이트 확인 실패: {e}")
+            logger.warning(f"업데이트 확인 실패: {e}")
+
+    def _submit_feedback(self, feedback_type: str, content: str):
+        """사용자 피드백을 GitHub Issue로 생성하거나 로컬 저장"""
+        label = "bug" if feedback_type == "bug" else "enhancement"
+        icon = "🐛" if feedback_type == "bug" else "💡"
+        title = f"[{label}] {content[:60]}"
+
+        # GitHub Issue 생성 시도
+        github_token = os.getenv("GITHUB_TOKEN", "")
+        if github_token:
+            try:
+                resp = requests.post(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/issues",
+                    json={
+                        "title": title,
+                        "body": (
+                            f"## {icon} 사용자 피드백\n\n"
+                            f"**유형**: {label}\n"
+                            f"**버전**: v{VERSION}\n\n"
+                            f"### 내용\n{content}\n\n"
+                            f"---\n_텔레그램 봇에서 자동 생성됨_"
+                        ),
+                        "labels": [label],
+                    },
+                    headers={
+                        "Authorization": f"token {github_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                    timeout=10,
+                )
+                if resp.status_code == 201:
+                    issue_url = resp.json().get("html_url", "")
+                    self.send_message(
+                        f"{icon} <b>피드백이 접수되었습니다!</b>\n\n"
+                        f"내용: {content[:100]}\n"
+                        f"추적: {issue_url}"
+                    )
+                    return
+            except Exception as e:
+                logger.warning(f"GitHub Issue 생성 실패: {e}")
+
+        # 폴백: 로컬 파일에 저장
+        feedback_dir = os.path.join(BASE_DIR, "feedback")
+        os.makedirs(feedback_dir, exist_ok=True)
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{label}_{timestamp}.txt"
+        filepath = os.path.join(feedback_dir, filename)
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(f"유형: {label}\n")
+                f.write(f"버전: v{VERSION}\n")
+                f.write(f"시간: {timestamp}\n")
+                f.write(f"내용: {content}\n")
+            self.send_message(
+                f"{icon} <b>피드백이 저장되었습니다!</b>\n\n"
+                f"내용: {content[:100]}\n"
+                f"파일: {filename}\n\n"
+                f"💡 GitHub 연동 시 자동으로 Issue가 생성됩니다."
+            )
+        except Exception as e:
+            self.send_message(f"❌ 피드백 저장 실패: {e}")
+
     def handle_voice_message(self, voice: dict):
         """텔레그램 음성 메시지 처리 (STT 변환)"""
         if not ENABLE_STT or voice_transcriber is None:
@@ -569,7 +813,7 @@ class TelegramBot:
                 "🎤 <b>음성 인식(STT)이 비활성화</b> 상태입니다.\n\n"
                 "활성화하려면 <code>.env</code>에서:\n"
                 "1. <code>ENABLE_STT=true</code> 설정\n"
-                "2. <code>GOOGLE_CLOUD_API_KEY=...</code> 설정\n"
+                "2. <code>pip install faster-whisper</code> 설치\n"
                 "3. 봇 재시작"
             )
             return
@@ -600,6 +844,11 @@ class TelegramBot:
         # 3) 인식 결과 표시 후 Host로 전달
         self.send_message(f"📝 <b>인식 결과:</b>\n{self._escape_html(transcribed_text)}")
         self.forward_to_host(transcribed_text)
+
+        # 4) 음성 입력이었으면 자동으로 음성 응답 모드 활성화 (자연스러운 대화)
+        if tts_engine_instance and not self.voice_mode:
+            self.voice_mode = True
+            logger.info("🎙️ 음성 입력 감지 → 음성 응답 모드 자동 활성화")
 
     def forward_to_host(self, text: str):
         """텔레그램 메시지를 Host 서버로 전달"""
@@ -643,6 +892,11 @@ class TelegramBot:
                         if len(reply_text) > 3500:
                             msg += "\n\n⋯ (이하 생략)"
                         self.send_message(msg)
+
+                        # 음성 응답 모드면 TTS로 음성도 전송
+                        if self.voice_mode and tts_engine_instance:
+                            self.send_voice(reply_text)
+
                         logger.info(f"🧠 AI 응답 전송 완료 ({len(reply_text)}자)")
             except Exception:
                 pass
