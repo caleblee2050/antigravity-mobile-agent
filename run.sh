@@ -6,7 +6,135 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# 트랩: 종료 시 모든 프로세스 정리
+# ─── 설정 상수 ───────────────────────────────────────
+GITHUB_REPO="caleblee2050/antigravity-mobile-agent"
+UPDATE_CHECK_COUNTER=0
+UPDATE_CHECK_INTERVAL=240  # 240 × 15초 = 1시간
+NOTIFIED_VERSION=""        # 이미 알린 버전 (중복 알림 방지)
+
+# ─── 헬퍼 함수 ───────────────────────────────────────
+
+send_telegram() {
+    # curl로 텔레그램 메시지 직접 전송 (Python 불필요)
+    local MSG="$1"
+    local TG_TOKEN=$(grep TELEGRAM_TOKEN .env 2>/dev/null | cut -d= -f2)
+    local TG_CHAT=$(grep TELEGRAM_CHAT_ID .env 2>/dev/null | cut -d= -f2)
+    if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+        curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id="$TG_CHAT" \
+            -d text="$MSG" \
+            -d parse_mode="HTML" > /dev/null 2>&1
+    fi
+}
+
+get_local_version() {
+    if [ -f "$SCRIPT_DIR/VERSION" ]; then
+        cat "$SCRIPT_DIR/VERSION" | tr -d '[:space:]'
+    else
+        echo "0.0.0"
+    fi
+}
+
+get_remote_version() {
+    # GitHub 릴리즈 → 없으면 태그 체크
+    local VER=""
+    VER=$(curl -s --connect-timeout 5 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' | sed 's/^v//')
+    if [ -z "$VER" ]; then
+        VER=$(curl -s --connect-timeout 5 "https://api.github.com/repos/${GITHUB_REPO}/tags" 2>/dev/null \
+            | grep '"name"' | head -1 | sed 's/.*"name": *"\([^"]*\)".*/\1/' | sed 's/^v//')
+    fi
+    echo "$VER"
+}
+
+check_and_update() {
+    local LOCAL_VER=$(get_local_version)
+    local REMOTE_VER=$(get_remote_version)
+
+    if [ -z "$REMOTE_VER" ] || [ "$REMOTE_VER" = "$LOCAL_VER" ]; then
+        return  # 최신 버전이거나 네트워크 오류
+    fi
+
+    # 이미 알린 버전이면 스킵
+    if [ "$REMOTE_VER" = "$NOTIFIED_VERSION" ]; then
+        return
+    fi
+
+    NOTIFIED_VERSION="$REMOTE_VER"
+
+    # AUTO_UPDATE 설정 확인
+    local AUTO_UPDATE=$(grep AUTO_UPDATE .env 2>/dev/null | cut -d= -f2)
+
+    if [ "$AUTO_UPDATE" = "true" ]; then
+        # 자동 업데이트 모드
+        send_telegram "🔄 <b>자동 업데이트 시작</b>
+v${LOCAL_VER} → v${REMOTE_VER}
+
+잠시 후 에이전트가 재시작됩니다..."
+
+        echo "$(date '+%Y-%m-%d %H:%M:%S') 🔄 자동 업데이트: v${LOCAL_VER} → v${REMOTE_VER}"
+
+        # git pull
+        git pull origin main >> logs/update.log 2>&1
+
+        # 의존성 업데이트
+        if [ -d "venv" ]; then
+            source venv/bin/activate
+            pip install -r requirements.txt >> logs/update.log 2>&1
+        fi
+
+        send_telegram "✅ <b>업데이트 완료!</b>
+v${REMOTE_VER} 적용 중... 에이전트를 재시작합니다."
+
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 업데이트 완료. 프로세스 재시작..."
+
+        # 모든 자식 프로세스 kill (워치독이 자동 재시작)
+        kill $HOST_PID $APPROVER_PID $TELEGRAM_PID $BRAIN_PID 2>/dev/null
+        sleep 2
+
+        # 자식 프로세스 재시작
+        restart_all_children
+    else
+        # 알림만 전송
+        send_telegram "🆕 <b>새 업데이트가 있습니다!</b>
+
+현재: v${LOCAL_VER}
+최신: v${REMOTE_VER}
+
+텔레그램에서 /update 명령으로 업데이트하거나,
+.env 파일에 AUTO_UPDATE=true 를 추가하면 자동 업데이트됩니다."
+
+        echo "$(date '+%Y-%m-%d %H:%M:%S') 🆕 업데이트 알림 전송: v${LOCAL_VER} → v${REMOTE_VER}"
+    fi
+}
+
+restart_all_children() {
+    # Flask 호스트
+    python3 antigravity_host.py >> logs/server.log 2>&1 &
+    HOST_PID=$!
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ Flask 호스트 시작 (PID: $HOST_PID)"
+
+    # 오토 어프로버
+    python3 auto_approver.py >> logs/approver_console.log 2>&1 &
+    APPROVER_PID=$!
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 오토 어프로버 시작 (PID: $APPROVER_PID)"
+
+    # 텔레그램 봇
+    TELEGRAM_PID=""
+    TELEGRAM_TOKEN_VAL=$(grep TELEGRAM_TOKEN .env 2>/dev/null | cut -d= -f2)
+    if [ -n "$TELEGRAM_TOKEN_VAL" ] && [ "$TELEGRAM_TOKEN_VAL" != "" ]; then
+        python3 telegram_bot.py > /dev/null 2>&1 &
+        TELEGRAM_PID=$!
+        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 텔레그램 봇 시작 (PID: $TELEGRAM_PID)"
+    fi
+
+    # 브레인 에이전트
+    python3 agent_brain.py >> logs/brain.log 2>&1 &
+    BRAIN_PID=$!
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 브레인 에이전트 시작 (PID: $BRAIN_PID)"
+}
+
+# ─── 트랩: 종료 시 모든 프로세스 정리 ─────────────────
 cleanup() {
     echo ""
     echo "🛑 모든 프로세스 종료 중..."
@@ -107,12 +235,14 @@ BRAIN_PID=$!
 echo "   PID: $BRAIN_PID"
 
 echo ""
-echo "🔄 워치독 모드: 프로세스 감시 시작 (크래시 시 자동 재시작)"
+echo "🔄 워치독 모드: 프로세스 감시 + 자동 업데이트 체크 시작"
 echo ""
 
-# 5. 워치독 루프 — 자식 프로세스 감시 및 자동 재시작
+# 5. 워치독 루프 — 프로세스 감시 + 업데이트 체크
 while true; do
     sleep 15
+
+    # ─── 프로세스 상태 감시 ─────────────────────────────
 
     # Flask 호스트 감시
     if ! kill -0 $HOST_PID 2>/dev/null; then
@@ -144,5 +274,12 @@ while true; do
         python3 agent_brain.py >> logs/brain.log 2>&1 &
         BRAIN_PID=$!
         echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 브레인 에이전트 재시작 완료 (PID: $BRAIN_PID)"
+    fi
+
+    # ─── 주기적 업데이트 체크 (1시간마다) ─────────────────
+    UPDATE_CHECK_COUNTER=$((UPDATE_CHECK_COUNTER + 1))
+    if [ $UPDATE_CHECK_COUNTER -ge $UPDATE_CHECK_INTERVAL ]; then
+        UPDATE_CHECK_COUNTER=0
+        check_and_update
     fi
 done
