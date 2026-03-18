@@ -4,6 +4,9 @@
 안티그래비티가 "Run", "Accept", "Allow" 등의 승인 버튼을 띄우면
 이미지 인식으로 감지 → 자동 클릭합니다.
 
+추가로 macOS TCC 팝업(앱 데이터 접근 허용 등)을 AppleScript로
+자동 감지하여 "허용" 버튼을 클릭합니다.
+
 macOS 사용 시 주의사항:
 - 시스템 설정 > 개인정보 보호 > 접근성에서 Python/터미널에 권한 필요
 - Retina 디스플레이의 경우 confidence 값 조정이 필요할 수 있음
@@ -14,6 +17,8 @@ import time
 import os
 import glob
 import logging
+import subprocess
+import platform
 from datetime import datetime
 import pyautogui
 from PIL import Image
@@ -108,6 +113,121 @@ def scan_and_click(button_images: list, confidence: float):
     return False
 
 
+def scan_and_dismiss_system_popups():
+    """
+    macOS 시스템 팝업 (TCC 앱 데이터 접근 허용 등) 자동 감지 및 클릭.
+    CoreServicesUIAgent, UserNotificationCenter, SecurityAgent 등의
+    프로세스에서 띄우는 팝업의 "허용"/"Allow"/"OK" 버튼을 자동 클릭.
+    """
+    if platform.system() != "Darwin":
+        return False
+
+    # 감지 대상 프로세스와 허용 버튼 텍스트
+    target_processes = [
+        "CoreServicesUIAgent",  # 앱 데이터 접근 허용 팝업
+        "UserNotificationCenter",  # 알림 관련 팝업
+        "SecurityAgent",  # 보안 관련 팝업
+    ]
+    allow_buttons = ["허용", "Allow", "OK", "확인", "Open", "열기"]
+
+    for proc_name in target_processes:
+        try:
+            # 해당 프로세스에 윈도우가 있는지 먼저 확인
+            check_script = f'''
+            tell application "System Events"
+                if exists process "{proc_name}" then
+                    tell process "{proc_name}"
+                        return count of windows
+                    end tell
+                end if
+            end tell
+            return 0
+            '''
+            result = subprocess.run(
+                ["osascript", "-e", check_script],
+                capture_output=True, text=True, timeout=3,
+            )
+            win_count = int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else 0
+
+            if win_count == 0:
+                continue
+
+            # 윈도우가 있으면 버튼 탐색 및 클릭
+            for btn_text in allow_buttons:
+                click_script = f'''
+                tell application "System Events"
+                    tell process "{proc_name}"
+                        repeat with w in windows
+                            try
+                                set allButtons to every button of w
+                                repeat with b in allButtons
+                                    if name of b is "{btn_text}" then
+                                        click b
+                                        return "clicked"
+                                    end if
+                                end repeat
+                            end try
+                            -- sheet 안에 버튼이 있는 경우도 처리
+                            try
+                                repeat with s in sheets of w
+                                    repeat with b in buttons of s
+                                        if name of b is "{btn_text}" then
+                                            click b
+                                            return "clicked"
+                                        end if
+                                    end repeat
+                                end repeat
+                            end try
+                        end repeat
+                    end tell
+                end tell
+                return "not_found"
+                '''
+                click_result = subprocess.run(
+                    ["osascript", "-e", click_script],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if click_result.returncode == 0 and "clicked" in click_result.stdout.strip():
+                    logger.info(f"🛡️ 시스템 팝업 자동 처리! [{proc_name}] → '{btn_text}' 클릭")
+                    _notify_popup_dismissed(proc_name, btn_text)
+                    time.sleep(1.0)
+                    return True
+
+        except subprocess.TimeoutExpired:
+            logger.debug(f"시스템 팝업 스캔 타임아웃: {proc_name}")
+        except Exception as e:
+            logger.debug(f"시스템 팝업 스캔 오류 ({proc_name}): {e}")
+
+    return False
+
+
+def _notify_popup_dismissed(proc_name: str, btn_text: str):
+    """팝업 자동 처리 시 텔레그램 알림"""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        import requests
+        tg_token = os.environ.get("TELEGRAM_TOKEN")
+        tg_chat = os.environ.get("TELEGRAM_CHAT_ID")
+        if tg_token and tg_chat:
+            requests.post(
+                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                json={
+                    "chat_id": tg_chat,
+                    "text": (
+                        f"🛡️ <b>시스템 팝업 자동 처리</b>\n\n"
+                        f"프로세스: <code>{proc_name}</code>\n"
+                        f"클릭한 버튼: <b>{btn_text}</b>\n\n"
+                        f"모바일 작업에 영향 없이 자동으로 처리되었습니다."
+                    ),
+                    "parse_mode": "HTML",
+                },
+                timeout=5,
+            )
+    except Exception:
+        pass
+
+
 def watch_for_new_images(last_count: int) -> list:
     """새로 추가된 이미지 감지 (핫 리로드)"""
     current = sorted(glob.glob(os.path.join(IMAGES_DIR, "btn_*.png")))
@@ -150,6 +270,12 @@ def main():
                 if new_images is not None:
                     button_images = new_images
                 image_check_counter = 0
+
+            # [우선] macOS 시스템 팝업 (TCC 등) 감지 및 자동 클릭
+            popup_handled = scan_and_dismiss_system_popups()
+            if popup_handled:
+                click_count += 1
+                logger.info(f"📊 총 자동 승인 횟수: {click_count} (시스템 팝업)")
 
             # 이미지가 있을 때만 스캔
             if button_images:
