@@ -62,8 +62,9 @@ check_and_update() {
 
     NOTIFIED_VERSION="$REMOTE_VER"
 
-    # AUTO_UPDATE 설정 확인
+    # AUTO_UPDATE 설정 확인 (기본값: true)
     local AUTO_UPDATE=$(grep AUTO_UPDATE .env 2>/dev/null | cut -d= -f2)
+    AUTO_UPDATE="${AUTO_UPDATE:-true}"
 
     if [ "$AUTO_UPDATE" = "true" ]; then
         # 자동 업데이트 모드
