@@ -62,50 +62,25 @@ check_and_update() {
 
     NOTIFIED_VERSION="$REMOTE_VER"
 
-    # AUTO_UPDATE 설정 확인 (기본값: true)
-    local AUTO_UPDATE=$(grep AUTO_UPDATE .env 2>/dev/null | cut -d= -f2)
-    AUTO_UPDATE="${AUTO_UPDATE:-true}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') 🆕 업데이트 감지: v${LOCAL_VER} → v${REMOTE_VER}"
 
-    if [ "$AUTO_UPDATE" = "true" ]; then
-        # 자동 업데이트 모드
-        send_telegram "🔄 <b>자동 업데이트 시작</b>
-v${LOCAL_VER} → v${REMOTE_VER}
-
-잠시 후 에이전트가 재시작됩니다..."
-
-        echo "$(date '+%Y-%m-%d %H:%M:%S') 🔄 자동 업데이트: v${LOCAL_VER} → v${REMOTE_VER}"
-
-        # git pull
-        git pull origin main >> logs/update.log 2>&1
-
-        # 의존성 업데이트
-        if [ -d "venv" ]; then
-            source venv/bin/activate
-            pip install -r requirements.txt >> logs/update.log 2>&1
-        fi
-
-        send_telegram "✅ <b>업데이트 완료!</b>
-v${REMOTE_VER} 적용 중... 에이전트를 재시작합니다."
-
-        echo "$(date '+%Y-%m-%d %H:%M:%S') ✅ 업데이트 완료. 프로세스 재시작..."
-
-        # 모든 자식 프로세스 kill (워치독이 자동 재시작)
-        kill $HOST_PID $APPROVER_PID $TELEGRAM_PID $BRAIN_PID 2>/dev/null
-        sleep 2
-
-        # 자식 프로세스 재시작
-        restart_all_children
-    else
-        # 알림만 전송
-        send_telegram "🆕 <b>새 업데이트가 있습니다!</b>
+    # 텔레그램 인라인 버튼으로 업데이트 선택 알림
+    local TG_TOKEN=$(grep TELEGRAM_TOKEN .env 2>/dev/null | cut -d= -f2)
+    local TG_CHAT=$(grep TELEGRAM_CHAT_ID .env 2>/dev/null | cut -d= -f2)
+    if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+        local MSG="🆕 <b>새 업데이트가 있습니다!</b>
 
 현재: v${LOCAL_VER}
 최신: v${REMOTE_VER}
 
-텔레그램에서 /update 명령으로 업데이트하거나,
-.env 파일에 AUTO_UPDATE=true 를 추가하면 자동 업데이트됩니다."
+업데이트를 적용하시겠습니까?"
 
-        echo "$(date '+%Y-%m-%d %H:%M:%S') 🆕 업데이트 알림 전송: v${LOCAL_VER} → v${REMOTE_VER}"
+        local KEYBOARD='{"inline_keyboard":[[{"text":"✅ 지금 업데이트","callback_data":"do_update"},{"text":"⏰ 나중에","callback_data":"skip_update"}]]}'
+
+        curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TG_CHAT}\",\"text\":\"${MSG}\",\"parse_mode\":\"HTML\",\"reply_markup\":${KEYBOARD}}" \
+            > /dev/null 2>&1
     fi
 }
 
