@@ -34,6 +34,8 @@ import signal
 import subprocess
 import threading
 import logging
+import hashlib
+import tempfile
 import requests
 from dotenv import load_dotenv
 
@@ -65,7 +67,10 @@ if ENABLE_TTS:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
-PID_FILE = os.path.join(BASE_DIR, "telegram_bot.pid")
+# 글로벌 PID: 같은 토큰이면 어느 디렉토리에서 실행해도 중복 감지
+_token_hash = hashlib.md5(os.getenv("TELEGRAM_TOKEN", "").encode()).hexdigest()[:8]
+PID_FILE = os.path.join(tempfile.gettempdir(), f"telegram_bot_{_token_hash}.pid")
+PID_FILE_LOCAL = os.path.join(BASE_DIR, "telegram_bot.pid")  # 하위 호환
 CONFIG_FILE = os.path.join(BASE_DIR, "agent_config.json")
 os.makedirs(LOGS_DIR, exist_ok=True)
 
@@ -93,7 +98,11 @@ POLL_INTERVAL = 3  # AI 응답 폴링 간격 (초)
 
 
 def ensure_single_instance():
-    """PID 파일로 중복 실행 방지 — 이미 실행 중이면 자기 자신이 종료"""
+    """PID 파일로 중복 실행 방지 — 이미 실행 중이면 자기 자신이 종료
+
+    글로벌(/tmp) PID 파일을 사용하여 같은 봇 토큰이면
+    어떤 디렉토리에서 실행하든 중복을 감지합니다.
+    """
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, "r") as f:
@@ -108,17 +117,24 @@ def ensure_single_instance():
         except PermissionError:
             pass  # 확인 불가 → 새로 시작
 
-    # 현재 PID 기록
+    # 현재 PID 기록 (글로벌 + 로컬 하위 호환)
+    current_pid = str(os.getpid())
     with open(PID_FILE, "w") as f:
-        f.write(str(os.getpid()))
+        f.write(current_pid)
+    try:
+        with open(PID_FILE_LOCAL, "w") as f:
+            f.write(current_pid)
+    except Exception:
+        pass  # 로컬 파일 쓰기 실패는 무시
 
 
 def cleanup_pid():
-    """종료 시 PID 파일 삭제"""
-    try:
-        os.remove(PID_FILE)
-    except FileNotFoundError:
-        pass
+    """종료 시 PID 파일 삭제 (글로벌 + 로컬)"""
+    for pf in (PID_FILE, PID_FILE_LOCAL):
+        try:
+            os.remove(pf)
+        except FileNotFoundError:
+            pass
 
 
 if not TELEGRAM_TOKEN:
